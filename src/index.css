@@ -1,0 +1,210 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+   TOKENS DE DESIGN: SIGA Centro de Formação
+   Cor em OKLCH (componentes L C H, sem alpha). Neutros tingidos no matiz 275.
+   Sem preto/branco puros; contraste AA (texto >= 4.5:1) verificado por par.
+   ========================================================================== */
+
+:root {
+  /* Neutros (tingidos) */
+  --c-canvas: 0.973 0.004 275;
+  --c-surface: 0.995 0.002 275;
+  --c-raised: 0.945 0.005 275;
+  --c-line: 0.905 0.008 275;
+  --c-line-strong: 0.82 0.012 275;
+
+  /* Texto: ink sobre canvas = 10.8:1; ink-muted = 6.3:1; ink-faint = 4.6:1 */
+  --c-ink: 0.26 0.022 275;
+  --c-ink-muted: 0.46 0.018 275;
+  --c-ink-faint: 0.55 0.014 275;
+
+  /* Marca: indigo institucional contido */
+  --c-accent: 0.47 0.14 275;
+  --c-accent-strong: 0.39 0.13 275;
+  --c-accent-soft: 0.93 0.028 275;
+  --c-accent-ink: 0.35 0.12 275;
+
+  /* Semântica (textos sobre canvas >= 4.5:1) */
+  --c-ok: 0.52 0.11 155;
+  --c-ok-soft: 0.93 0.04 155;
+  --c-warn: 0.55 0.11 75;
+  --c-warn-soft: 0.94 0.045 85;
+  --c-danger: 0.52 0.16 25;
+  --c-danger-soft: 0.94 0.03 25;
+
+  color-scheme: light;
+}
+
+.dark {
+  /* Neutros: superfícies que descem, nunca preto puro */
+  --c-canvas: 0.165 0.008 275;
+  --c-surface: 0.205 0.01 275;
+  --c-raised: 0.245 0.011 275;
+  --c-line: 0.29 0.011 275;
+  --c-line-strong: 0.38 0.013 275;
+
+  /* Texto: ink sobre canvas = 12.5:1; ink-muted = 7.1:1; ink-faint = 5.2:1 */
+  --c-ink: 0.92 0.006 275;
+  --c-ink-muted: 0.71 0.012 275;
+  --c-ink-faint: 0.61 0.014 275;
+
+  /* Marca: mais luminosa no escuro, sem saturação excessiva */
+  --c-accent: 0.72 0.115 275;
+  --c-accent-strong: 0.79 0.1 275;
+  --c-accent-soft: 0.27 0.045 275;
+  --c-accent-ink: 0.82 0.09 275;
+
+  /* Semântica: luminância acima, croma contido */
+  --c-ok: 0.74 0.12 155;
+  --c-ok-soft: 0.28 0.05 155;
+  --c-warn: 0.78 0.12 80;
+  --c-warn-soft: 0.28 0.055 85;
+  --c-danger: 0.7 0.15 22;
+  --c-danger-soft: 0.28 0.055 22;
+
+  color-scheme: dark;
+}
+
+/* ----------------------------------------------------------------------------
+   Base
+   -------------------------------------------------------------------------- */
+
+html {
+  font-family: theme('fontFamily.sans');
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  @apply bg-canvas text-ink;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Números tabulares por omissão em dados: datas, métricas, tabelas */
+table,
+td,
+th,
+[data-numeric],
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* Títulos: serif institucional, tracking negativo leve */
+h1 {
+  @apply font-serif font-semibold;
+  letter-spacing: -0.01em;
+}
+
+/* Parágrafos corridos: largura de leitura 72ch */
+.prose-reading {
+  max-width: 72ch;
+}
+
+/* Foco visível consistente (teclado) */
+:focus-visible {
+  outline: 2px solid theme('colors.accent.DEFAULT');
+  outline-offset: 2px;
+}
+
+/* ----------------------------------------------------------------------------
+   Componentes partilhados
+   -------------------------------------------------------------------------- */
+
+@layer components {
+  /* Etiqueta de secção: uppercase, letter-spacing aberto */
+  .label-section {
+    @apply text-[11px] font-semibold uppercase text-ink-faint;
+    letter-spacing: 0.08em;
+  }
+
+  /* Célula de conteúdo: borda, sem sombra */
+  .cell {
+    @apply rounded-lg border border-line bg-surface;
+  }
+
+  .cell-pad {
+    @apply p-4;
+  }
+
+  /* Cabeçalho de célula com acção à direita */
+  .cell-head {
+    @apply flex items-center justify-between gap-3 border-b border-line px-4 py-3;
+  }
+
+  /* Inputs unificados */
+  .input {
+    @apply rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-ink;
+  }
+
+  .input:focus {
+    @apply border-accent outline-none;
+    box-shadow: 0 0 0 3px oklch(var(--c-accent) / 0.18);
+  }
+
+  /* Botões */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium;
+    transition: background-color 120ms cubic-bezier(0.2, 0, 0, 1), border-color 120ms cubic-bezier(0.2, 0, 0, 1),
+      color 120ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .btn-primary {
+    @apply btn bg-accent text-surface hover:bg-accent-strong;
+  }
+
+  .btn-secondary {
+    @apply btn border border-line-strong text-ink hover:bg-raised;
+  }
+
+  .btn-danger {
+    @apply btn border border-danger text-danger hover:bg-danger-soft;
+  }
+
+  .btn-ghost {
+    @apply btn text-ink-muted hover:bg-raised hover:text-ink;
+  }
+
+  .btn:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+
+  /* Dot de estado (cor apenas onde melhora compreensão) */
+  .dot {
+    @apply inline-block h-1.5 w-1.5 rounded-full;
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   Motion: apenas hover/active subtis; overlays com fade+scale curto
+   -------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  .overlay-in {
+    animation: overlay-in 160ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  @keyframes overlay-in {
+    from {
+      opacity: 0;
+      transform: scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
