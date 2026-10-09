@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      # O build do Vite não lança sem as variáveis (o código faz fallback com
+      # aviso), mas definimos valores placeholder para o bundle ser determinístico.
+      - name: Typecheck + build
+        env:
+          VITE_SUPABASE_URL: https://placeholder.supabase.co
+          VITE_SUPABASE_ANON_KEY: placeholder-anon-key
+        run: npm run build
+
+      - name: Verificar artefactos do PWA
+        run: test -f dist/index.html && test -f dist/sw.js && test -f dist/manifest.webmanifest
