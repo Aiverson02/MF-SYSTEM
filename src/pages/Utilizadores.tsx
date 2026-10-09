@@ -32,8 +32,8 @@ function CriarUtilizadorModal({ onClose, onDone }: { onClose: () => void; onDone
   const guardar = async (e: React.FormEvent) => {
     e.preventDefault()
     setErro(null)
-    if (!email.trim() || !password || password.length < 6) {
-      setErro('Indique um email válido e uma password com pelo menos 6 caracteres.')
+    if (!email.trim() || !password || password.length < 8) {
+      setErro('Indique um email válido e uma password com pelo menos 8 caracteres.')
       return
     }
     setLoading(true)
@@ -74,12 +74,13 @@ function CriarUtilizadorModal({ onClose, onDone }: { onClose: () => void; onDone
           <div>
             <label className="label-section mb-1 block">Password *</label>
             <input
-              type="text"
+              type="password"
               className="input w-full font-mono"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Mínimo 6 caracteres"
-              minLength={6}
+              placeholder="Mínimo 8 caracteres"
+              minLength={8}
+              autoComplete="new-password"
               required
             />
           </div>
@@ -130,8 +131,8 @@ function RedefinirPasswordModal({
   const guardar = async (e: React.FormEvent) => {
     e.preventDefault()
     setErro(null)
-    if (password.length < 6) {
-      setErro('A password deve ter pelo menos 6 caracteres.')
+    if (password.length < 8) {
+      setErro('A password deve ter pelo menos 8 caracteres.')
       return
     }
     setLoading(true)
@@ -161,12 +162,13 @@ function RedefinirPasswordModal({
         <div className="mt-4">
           <label className="label-section mb-1 block">Nova password *</label>
           <input
-            type="text"
+            type="password"
             className="input w-full font-mono"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Mínimo 6 caracteres"
-            minLength={6}
+            placeholder="Mínimo 8 caracteres"
+            minLength={8}
+            autoComplete="new-password"
             required
             autoFocus
           />

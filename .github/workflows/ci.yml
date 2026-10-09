@@ -20,6 +20,11 @@ jobs:
       - name: Instalar dependências
         run: npm ci
 
+      # Falha o build se surgir vulnerabilidade HIGH/CRITICAL em dependências
+      # de PRODUÇÃO (devDeps do toolchain ficam registadas no SECURITY.md)
+      - name: Auditoria de vulnerabilidades npm (produção)
+        run: npm audit --omit=dev --audit-level=high
+
       # O build do Vite não lança sem as variáveis (o código faz fallback com
       # aviso), mas definimos valores placeholder para o bundle ser determinístico.
       - name: Typecheck + build

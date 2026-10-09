@@ -51,6 +51,7 @@ export default function Login() {
               onChange={(e) => setEmail(e.target.value)}
               className="input w-full"
               placeholder="secretaria@centro.co.mz"
+              autoComplete="username"
             />
           </div>
           <div>
@@ -65,6 +66,7 @@ export default function Login() {
               onChange={(e) => setPassword(e.target.value)}
               className="input w-full"
               placeholder="••••••••"
+              autoComplete="current-password"
             />
           </div>
 

@@ -8,8 +8,13 @@ export interface Perfil {
 }
 
 /**
- * Lê o utilizador autenticado e o papel a partir dos metadados do JWT
- * (raw_user_meta_data.papel = 'secretaria' | 'admin', ver migrations 010/011).
+ * Lê o utilizador autenticado e o papel a partir do JWT.
+ *
+ * O papel vive em `app_metadata` (migração 014) — escrita exclusiva do
+ * service_role, IMUTÁVEL pelo próprio utilizador. Antes vivia em
+ * `user_metadata`, que qualquer conta podia alterar via auth.updateUser()
+ * (escalação de privilégios). O fallback para user_metadata existe apenas
+ * para transição e não confere permissão alguma no servidor.
  *
  * Nota: isto é apenas para a UI esconder/mostrar acções. A garantia real de
  * segurança está no servidor (RPCs security definer + RLS) — nunca no cliente.
@@ -27,11 +32,12 @@ export function usePerfil() {
         setPerfil(null)
         return
       }
-      const meta = (data.user.user_metadata ?? {}) as Record<string, unknown>
-      const papelRaw = String(meta.papel ?? '')
+      const appMeta = (data.user.app_metadata ?? {}) as Record<string, unknown>
+      const userMeta = (data.user.user_metadata ?? {}) as Record<string, unknown>
+      const papelRaw = String(appMeta.papel ?? userMeta.papel ?? '')
       setPerfil({
         email: data.user.email ?? null,
-        nome: String(meta.nome ?? meta.name ?? data.user.email ?? 'Utilizador'),
+        nome: String(userMeta.nome ?? userMeta.name ?? data.user.email ?? 'Utilizador'),
         papel:
           papelRaw === 'admin' || papelRaw === 'secretaria' ? (papelRaw as Perfil['papel']) : 'desconhecido',
       })

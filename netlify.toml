@@ -8,6 +8,23 @@
   to = "/index.html"
   status = 200
 
+# ---------------------------------------------------------------------------
+# Headers de segurança (OWASP): CSP estrita, anti-clickjacking, anti-sniffing,
+# referrer policy, HSTS. O PWA regista o SW e liga ao Supabase — daí os
+# domínios autorizados no connect-src.
+# ---------------------------------------------------------------------------
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' https://*.supabase.co wss://*.supabase.co; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=()"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Resource-Policy = "same-origin"
+
 # O service worker deve revalidar sempre; o resto do assets é cacheado longamente
 [[headers]]
   for = "/sw.js"

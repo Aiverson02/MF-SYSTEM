@@ -28,6 +28,21 @@ async function configInstituicao(): Promise<{
 const fmtMzn = (v: number) =>
   new Intl.NumberFormat('pt-MZ', { style: 'currency', currency: 'MZN', maximumFractionDigits: 2 }).format(v)
 
+/**
+ * Escape de HTML para interpolação segura no documento do recibo.
+ * O recibo é escrito via document.write na mesma origem da app: sem escape,
+ * um nome de aluno malicioso submetido no formulário público (stored XSS)
+ * executaria JavaScript com acesso à sessão da secretaria.
+ */
+function esc(v: unknown): string {
+  return String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 /** Nº de recibo estável derivado do id do pagamento: REC-YYYYMM-XXXXXX */
 export function numeroRecibo(p: Pagamento): string {
   const mes = p.mes_referencia.slice(0, 7).replace('-', '')
@@ -56,13 +71,13 @@ export async function imprimirRecibo(p: Pagamento, nomeInst?: string) {
   const pago = p.estado === 'pago'
 
   const linh = (label: string, valor: string) =>
-    `<tr><td class="l">${label}</td><td class="v">${valor}</td></tr>`
+    `<tr><td class="l">${esc(label)}</td><td class="v">${esc(valor)}</td></tr>`
 
   const html = `<!doctype html>
 <html lang="pt">
 <head>
 <meta charset="utf-8" />
-<title>Recibo ${numeroRecibo(p)} — ${nomeAluno}</title>
+<title>Recibo ${esc(numeroRecibo(p))} — ${esc(nomeAluno)}</title>
 <style>
   @page { size: A4; margin: 18mm; }
   * { box-sizing: border-box; }
@@ -133,18 +148,18 @@ export async function imprimirRecibo(p: Pagamento, nomeInst?: string) {
     <header>
       <div class="marca">
         ${
-          cfg.logo_url
-            ? `<img src="${cfg.logo_url}" alt="logo" style="width:44px;height:44px;object-fit:contain;border-radius:6px;border:1px solid #ddd;" />`
-            : `<div class="logotipo">${iniciais}</div>`
+          cfg.logo_url && /^https?:\/\//i.test(cfg.logo_url)
+            ? `<img src="${esc(cfg.logo_url)}" alt="logo" style="width:44px;height:44px;object-fit:contain;border-radius:6px;border:1px solid #ddd;" />`
+            : `<div class="logotipo">${esc(iniciais)}</div>`
         }
         <div>
-          <h1>${nome}</h1>
+          <h1>${esc(nome)}</h1>
           <p class="sub">Recibo de mensalidade</p>
         </div>
       </div>
       <div class="titulo">
         <p class="recibo-num">Recibo nº</p>
-        <p class="num">${numeroRecibo(p)}</p>
+        <p class="num">${esc(numeroRecibo(p))}</p>
         ${pago ? '<span class="estado">Pago</span>' : '<span class="estado anulado">Não pago</span>'}
       </div>
     </header>
@@ -173,24 +188,24 @@ export async function imprimirRecibo(p: Pagamento, nomeInst?: string) {
       ${pago ? '<div class="valor-pago">PAGO<br/>✓</div>' : ''}
     </div>
 
-    ${p.observacoes ? `<p class="obs">Obs.: ${p.observacoes}</p>` : ''}
+    ${p.observacoes ? `<p class="obs">Obs.: ${esc(p.observacoes)}</p>` : ''}
 
     <footer>
       <div class="rubrica">Emitido por (secretaria)</div>
       <div class="rubrica">Recibo do aluno</div>
     </footer>
-    <p class="contactos">${
+    <p class="contactos">${esc(
       [cfg.telefone, cfg.email, cfg.endereco].filter(Boolean).map((s) => String(s)).join(' · ') || nome
-    }</p>
+    )}</p>
     <p class="rodape-fino">
       Documento emitido electronicamente pelo sistema SIGA em ${new Date().toLocaleDateString('pt-PT')}.
       Guarde este recibo como comprovativo de pagamento.
     </p>
   </div>
-
   <div class="sem-impressao">
-    <button onclick="window.print()">Imprimir / Guardar PDF</button>
-    <button class="sec" onclick="window.close()">Fechar</button>
+    <button id="btn-imprimir">Imprimir / Guardar PDF</button>
+    <button id="btn-fechar" class="sec">Fechar</button>
+    <p style="margin-top:10px;font-size:11px;color:#999;">Pré-visualização — feche esta janela depois de imprimir.</p>
   </div>
 </body>
 </html>`
@@ -206,6 +221,10 @@ export async function imprimirRecibo(p: Pagamento, nomeInst?: string) {
   }
   w.document.write(html)
   w.document.close()
+  // Botões ligados pelo opener (sem handlers inline — compatível com CSP
+  // script-src 'self'; o documento do popup herda a CSP da app)
+  w.document.getElementById('btn-imprimir')?.addEventListener('click', () => w.print())
+  w.document.getElementById('btn-fechar')?.addEventListener('click', () => w.close())
   // Pequeno atraso para o layout assentar antes de invocar o diálogo
   w.focus()
   setTimeout(() => w.print(), 350)
