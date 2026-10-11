@@ -88,3 +88,33 @@ que não está configurado.
   em logout / troca de conta / sessão expirada.
 - Escrita em configurações e preços: apenas `admin` (RLS).
 - `.env` e `.freebuff/` estão no `.gitignore`; nunca commitar credenciais.
+
+## Instalar como aplicativo no Windows (PWA)
+
+O SIGA é um PWA instalável: abre como aplicativo próprio, com ícone na barra
+de tarefas e janela sem endereço de internet.
+
+1. Abra o site no **Microsoft Edge** (ou Chrome).
+2. Menu `⋯` → **Aplicativos** → **Instalar este site como aplicativo** (Chrome:
+   ícone de instalar no fim da barra de endereço).
+3. Confirme — aparece como "SIGA" no menu Iniciar e na barra de tarefas.
+
+### Modo offline (funciona sem internet)
+
+A camada em `src/lib/offline.ts` garante:
+
+- **Leituras offline**: cada consulta ao Supabase (GET e RPCs de consulta) é
+  guardada no Cache API; sem ligação são servidos os últimos dados vistos.
+- **Escritas offline**: alterações feitas sem ligação entram numa fila
+  persistente (localStorage) e a app avisa "alteração guardada". Ao voltar a
+  ligação (evento `online` ou tentativa automática a cada 45 s) a fila é
+  reenviada e os dados são actualizados.
+- **Login offline**: a **primeira** autenticação exige internet. Depois de
+  entrar uma vez, a sessão fica guardada e o painel abre offline (leituras em
+  cache, escritas na fila). Se a sessão expirar, é pedida ligação para
+  renovar.
+- O indicador no canto inferior esquerdo mostra o estado: offline (âmbar), a
+  sincronizar (azul) ou falhas (vermelho — toque para ver motivos).
+
+Limitações: o **envio de ficheiros** (documentos de inscrição) e a verificação
+do código de finanças exigem ligação.

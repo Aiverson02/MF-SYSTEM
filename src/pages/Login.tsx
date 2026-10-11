@@ -4,6 +4,10 @@ import { supabase } from '../lib/supabase'
 import { Spinner } from '../components/ui'
 import { useInstituicao } from '../hooks/useInstituicao'
 
+const MSG_OFFLINE =
+  'Sem ligação à internet. O acesso offline só está disponível para sessões já iniciadas neste computador — ' +
+  'conecte-se uma vez para entrar e depois o painel abre offline com os últimos dados guardados.'
+
 export default function Login() {
   const navigate = useNavigate()
   const instituicao = useInstituicao()
@@ -14,17 +18,29 @@ export default function Login() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setLoading(true)
     setError(null)
-    const { data, error: err } = await supabase.auth.signInWithPassword({ email, password })
-    if (err) {
-      setError(err.message)
-      setLoading(false)
+
+    // Primeira autenticação exige rede (o Supabase valida as credenciais).
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setError(MSG_OFFLINE)
       return
     }
-    // Sessão persistida: navegar explicitamente para o painel.
-    navigate('/admin/dashboard', { replace: true })
-    void data
+
+    setLoading(true)
+    try {
+      const { error: err } = await supabase.auth.signInWithPassword({ email, password })
+      if (err) {
+        if (/failed to fetch|networkerror|load failed/i.test(err.message)) setError(MSG_OFFLINE)
+        else setError(err.message)
+        setLoading(false)
+        return
+      }
+      // Sessão persistida: navegar explicitamente para o painel.
+      navigate('/admin/dashboard', { replace: true })
+    } catch {
+      setError(MSG_OFFLINE)
+      setLoading(false)
+    }
   }
 
   return (

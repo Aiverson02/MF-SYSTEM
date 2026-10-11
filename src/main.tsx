@@ -17,12 +17,16 @@ import Publica from './pages/Publica'
 import { RequireAuth } from './components/RequireAuth'
 import ToastHost from './components/ToastHost'
 import ConfirmHost from './components/ConfirmHost'
+import BarraOffline from './components/BarraOffline'
+// Camada offline: tem de ser importada antes da app (intercepta o fetch ao Supabase).
+import './lib/offline'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ToastHost />
     <ConfirmHost />
+    <BarraOffline />
     <BrowserRouter>
       <Routes>
         <Route path="/inscricao" element={<Publica />} />

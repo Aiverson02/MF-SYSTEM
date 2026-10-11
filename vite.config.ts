@@ -26,18 +26,39 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // App shell + navegação offline; os dados vivem no Supabase (com cache local)
+        // App shell + navegação offline. O cache dos DADOS (REST + RPCs) é
+        // gerido pela camada em src/lib/offline.ts, que também cacheia RPCs
+        // POST e encaminha as escritas para a fila de sincronização — daí
+        // não haver regra Workbox para /rest/v1/.
         navigateFallback: '/index.html',
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         runtimeCaching: [
           {
-            // Cache dos dados do Supabase (GET) — modo "network first, fallback ao cache"
-            // permite abrir o painel offline com os últimos dados vistos.
-            urlPattern: /^https:\/\/.*\.supabase\.co\/rest\/v1\/.*/,
+            // Logótipo e pré-visualizações de documentos (GET)
+            urlPattern: /^https:\/\/.*\.supabase\.co\/storage\/v1\/.*/,
             handler: 'NetworkFirst',
             options: {
-              cacheName: 'siga-api',
-              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 7 },
+              cacheName: 'siga-storage',
+              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 7 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            // Tipografia offline (Google Fonts)
+            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'siga-fontes-css',
+              expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'siga-fontes-ficheiros',
+              expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 365 },
               cacheableResponse: { statuses: [0, 200] },
             },
           },
