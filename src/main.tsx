@@ -12,12 +12,14 @@ import Pagamentos from './pages/Pagamentos'
 import PosConclusao from './pages/PosConclusao'
 import Utilizadores from './pages/Utilizadores'
 import Configuracoes from './pages/Configuracoes'
+import GuiaRapido from './pages/GuiaRapido'
 import Login from './pages/Login'
 import Publica from './pages/Publica'
 import { RequireAuth } from './components/RequireAuth'
 import ToastHost from './components/ToastHost'
 import ConfirmHost from './components/ConfirmHost'
 import BarraOffline from './components/BarraOffline'
+import PromptInstalacao from './components/PromptInstalacao'
 // Camada offline: tem de ser importada antes da app (intercepta o fetch ao Supabase).
 import './lib/offline'
 import './index.css'
@@ -27,6 +29,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ToastHost />
     <ConfirmHost />
     <BarraOffline />
+    <PromptInstalacao />
     <BrowserRouter>
       <Routes>
         <Route path="/inscricao" element={<Publica />} />
@@ -44,6 +47,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="alunos/:id" element={<FichaAluno />} />
             <Route path="cursos" element={<CursosTurmas />} />
             <Route path="configuracoes" element={<Configuracoes />} />
+            <Route path="guia" element={<GuiaRapido />} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
