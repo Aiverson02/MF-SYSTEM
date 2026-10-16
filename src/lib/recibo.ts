@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
-import type { Pagamento } from '../types/database'
-import { METODO_LABELS, mesLabel } from '../types/database'
+import type { Pagamento, PosConclusao } from '../types/database'
+import { ITEM_POS_LABELS, METODO_LABELS, mesLabel } from '../types/database'
 import { NOME_INSTITUICAO_DEFAULT } from '../hooks/useInstituicao'
 
 /** Configuração da instituição gravada em config_instituicao (com fallback). */
@@ -43,11 +43,32 @@ function esc(v: unknown): string {
     .replace(/'/g, '&#39;')
 }
 
-/** Nº de recibo estável derivado do id do pagamento: REC-YYYYMM-XXXXXX */
-export function numeroRecibo(p: Pagamento): string {
-  const mes = p.mes_referencia.slice(0, 7).replace('-', '')
-  const seq = p.id.replace(/-/g, '').slice(0, 6).toUpperCase()
+/** Nº de recibo estável derivado de um id e de uma data (YYYY-MM-DD ou YYYY-MM-01): REC-YYYYMM-XXXXXX */
+function numeroReciboDe(id: string, data: string): string {
+  const mes = data.slice(0, 7).replace('-', '')
+  const seq = id.replace(/-/g, '').slice(0, 6).toUpperCase()
   return `REC-${mes}-${seq}`
+}
+
+/** Nº de recibo de uma mensalidade: REC-YYYYMM-XXXXXX */
+export function numeroRecibo(p: Pagamento): string {
+  return numeroReciboDe(p.id, p.mes_referencia)
+}
+
+/** Forma normalizada de qualquer recibo — mensalidades e pós-conclusão partilham o layout. */
+interface DadosRecibo {
+  numero: string
+  subtitulo: string
+  nomeAluno: string
+  numeroEstudante: string
+  turma: string
+  /** Estado mostrado no topo do recibo («Pago» / «Não pago»). */
+  estadoTopo: string
+  pago: boolean
+  /** Linhas da tabela «Detalhe do pagamento». */
+  linhas: [string, string][]
+  valor: number
+  observacoes: string | null
 }
 
 /**
@@ -55,7 +76,7 @@ export function numeroRecibo(p: Pagamento): string {
  * (sem dependências externas — o utilizador grava/imprime como PDF via
  * "Guardar como PDF" do navegador) e invoca window.print() após carregar.
  */
-export async function imprimirRecibo(p: Pagamento, nomeInst?: string) {
+async function emitirRecibo(d: DadosRecibo, nomeInst?: string) {
   const cfg = await configInstituicao()
   const nome = nomeInst ?? cfg.nome
   const iniciais = nome
@@ -64,20 +85,17 @@ export async function imprimirRecibo(p: Pagamento, nomeInst?: string) {
     .slice(0, 2)
     .map((s) => s[0]!.toUpperCase())
     .join('') || 'CF'
-  const a = p.alunos_matriculados
-  const nomeAluno = a?.inscricoes?.nome_completo ?? '—'
-  const numeroEstudante = a?.numero_estudante ?? '—'
-  const turma = a?.turmas?.nome_turma ?? ''
-  const pago = p.estado === 'pago'
+  const { numero, nomeAluno, numeroEstudante, turma, pago } = d
 
   const linh = (label: string, valor: string) =>
     `<tr><td class="l">${esc(label)}</td><td class="v">${esc(valor)}</td></tr>`
+  const detalhe = d.linhas.map(([l, v]) => linh(l, v)).join('\n      ')
 
   const html = `<!doctype html>
 <html lang="pt">
 <head>
 <meta charset="utf-8" />
-<title>Recibo ${esc(numeroRecibo(p))} — ${esc(nomeAluno)}</title>
+<title>Recibo ${esc(numero)} — ${esc(nomeAluno)}</title>
 <style>
   @page { size: A4; margin: 18mm; }
   * { box-sizing: border-box; }
@@ -154,13 +172,13 @@ export async function imprimirRecibo(p: Pagamento, nomeInst?: string) {
         }
         <div>
           <h1>${esc(nome)}</h1>
-          <p class="sub">Recibo de mensalidade</p>
+          <p class="sub">${esc(d.subtitulo)}</p>
         </div>
       </div>
       <div class="titulo">
         <p class="recibo-num">Recibo nº</p>
-        <p class="num">${esc(numeroRecibo(p))}</p>
-        ${pago ? '<span class="estado">Pago</span>' : '<span class="estado anulado">Não pago</span>'}
+        <p class="num">${esc(numero)}</p>
+        <span class="estado${pago ? '' : ' anulado'}">${esc(d.estadoTopo)}</span>
       </div>
     </header>
 
@@ -173,22 +191,18 @@ export async function imprimirRecibo(p: Pagamento, nomeInst?: string) {
 
     <h2>Detalhe do pagamento</h2>
     <table class="dados">
-      ${linh('Referência', mesLabel(p.mes_referencia))}
-      ${pago && p.data_pagamento ? linh('Data do pagamento', p.data_pagamento) : ''}
-      ${pago && p.metodo ? linh('Método', METODO_LABELS[p.metodo]) : ''}
-      ${pago && p.referencia ? linh('Nº de recibo / transação', p.referencia) : ''}
-      ${linh('Estado', pago ? 'Pago' : p.estado === 'isento' ? 'Isento' : 'Pendente')}
+      ${detalhe}
     </table>
 
     <div class="destaque">
       <div>
         <p class="rotulo">Valor</p>
-        <p class="valor">${fmtMzn(Number(p.valor))}</p>
+        <p class="valor">${fmtMzn(d.valor)}</p>
       </div>
       ${pago ? '<div class="valor-pago">PAGO<br/>✓</div>' : ''}
     </div>
 
-    ${p.observacoes ? `<p class="obs">Obs.: ${esc(p.observacoes)}</p>` : ''}
+    ${d.observacoes ? `<p class="obs">Obs.: ${esc(d.observacoes)}</p>` : ''}
 
     <footer>
       <div class="rubrica">Emitido por (secretaria)</div>
@@ -228,4 +242,60 @@ export async function imprimirRecibo(p: Pagamento, nomeInst?: string) {
   // Pequeno atraso para o layout assentar antes de invocar o diálogo
   w.focus()
   setTimeout(() => w.print(), 350)
+}
+
+/** Recibo de uma mensalidade. */
+export async function imprimirRecibo(p: Pagamento, nomeInst?: string) {
+  const a = p.alunos_matriculados
+  const pago = p.estado === 'pago'
+
+  const linhas: [string, string][] = [['Referência', mesLabel(p.mes_referencia)]]
+  if (pago && p.data_pagamento) linhas.push(['Data do pagamento', p.data_pagamento])
+  if (pago && p.metodo) linhas.push(['Método', METODO_LABELS[p.metodo]])
+  if (pago && p.referencia) linhas.push(['Nº de recibo / transação', p.referencia])
+  linhas.push(['Estado', pago ? 'Pago' : p.estado === 'isento' ? 'Isento' : 'Pendente'])
+
+  await emitirRecibo(
+    {
+      numero: numeroRecibo(p),
+      subtitulo: 'Recibo de mensalidade',
+      nomeAluno: a?.inscricoes?.nome_completo ?? '—',
+      numeroEstudante: a?.numero_estudante ?? '—',
+      turma: a?.turmas?.nome_turma ?? '',
+      estadoTopo: pago ? 'Pago' : 'Não pago',
+      pago,
+      linhas,
+      valor: Number(p.valor),
+      observacoes: p.observacoes,
+    },
+    nomeInst,
+  )
+}
+
+/** Recibo de um pagamento de pós-conclusão (certificado ou faixa de graduação). */
+export async function imprimirReciboPos(i: PosConclusao, nomeInst?: string) {
+  const a = i.alunos_matriculados
+
+  const linhas: [string, string][] = [
+    ['Item', ITEM_POS_LABELS[i.item]],
+    ['Origem', 'Pós-conclusão (certificado / faixa)'],
+  ]
+  if (i.data_pagamento) linhas.push(['Data do pagamento', i.data_pagamento])
+  linhas.push(['Estado', i.pago ? 'Pago' : 'Pendente'])
+
+  await emitirRecibo(
+    {
+      numero: numeroReciboDe(i.id, i.data_pagamento ?? i.criado_em),
+      subtitulo: 'Recibo de pós-conclusão',
+      nomeAluno: a?.inscricoes?.nome_completo ?? '—',
+      numeroEstudante: a?.numero_estudante ?? '—',
+      turma: a?.turmas?.nome_turma ?? '',
+      estadoTopo: i.pago ? 'Pago' : 'Não pago',
+      pago: i.pago,
+      linhas,
+      valor: Number(i.valor),
+      observacoes: null,
+    },
+    nomeInst,
+  )
 }

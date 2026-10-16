@@ -7,6 +7,7 @@ import { EmptyState, ErrorMessage, LoadingBlock, PageHeader } from '../component
 import { confirmarAcao, showSuccess } from '../lib/alerts'
 import { pushToast } from '../components/ToastHost'
 import { format } from '../lib/format'
+import { imprimirReciboPos } from '../lib/recibo'
 
 const fmtMzn = (v: number) =>
   new Intl.NumberFormat('pt-MZ', { style: 'currency', currency: 'MZN', maximumFractionDigits: 0 }).format(v)
@@ -60,6 +61,16 @@ export default function PosConclusaoPage() {
     }
     pushToast('Pagamento registado.', 'sucesso')
     void reload()
+    // Como nas mensalidades: emite o recibo logo após o pagamento ser aceite
+    setTimeout(
+      () =>
+        void imprimirReciboPos({
+          ...i,
+          pago: true,
+          data_pagamento: new Date().toISOString().slice(0, 10),
+        }),
+      250,
+    )
   }
 
   const avancarEstado = async (i: PosConclusao) => {
@@ -225,6 +236,11 @@ export default function PosConclusaoPage() {
                           {!i.pago && i.estado !== 'entregue' && (
                             <button onClick={() => void marcarPago(i)} className="btn-primary px-2.5 py-1 text-xs">
                               Marcar pago
+                            </button>
+                          )}
+                          {i.pago && (
+                            <button onClick={() => void imprimirReciboPos(i)} className="btn-secondary px-2.5 py-1 text-xs">
+                              Recibo
                             </button>
                           )}
                           {i.estado === 'pendente' && (

@@ -2,14 +2,14 @@ import { useCallback, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type { EstadoPagamento, MetodoPagamento, Pagamento, PosConclusao } from '../types/database'
-import { ESTADO_PAGAMENTO_LABELS, METODO_LABELS, mesLabel } from '../types/database'
+import { ESTADO_PAGAMENTO_LABELS, ITEM_POS_LABELS, METODO_LABELS, mesLabel } from '../types/database'
 import { useAsyncData } from '../hooks/useAsyncData'
 import { EmptyState, ErrorMessage, LoadingBlock, PageHeader } from '../components/ui'
 import { confirmarAcao, showError, showSuccess } from '../lib/alerts'
 import { pushToast } from '../components/ToastHost'
 import { createPortal } from 'react-dom'
 import { useEscapeKey } from '../hooks/useEscapeKey'
-import { imprimirRecibo } from '../lib/recibo'
+import { imprimirRecibo, imprimirReciboPos } from '../lib/recibo'
 import { useFinancas } from '../hooks/useFinancas'
 import { useIsAdmin } from '../hooks/usePerfil'
 
@@ -286,7 +286,7 @@ export default function Pagamentos() {
     const { data, error: err } = await supabase
       .from('pos_conclusao')
       .select(
-        'id, item, valor, pago, data_pagamento, alunos_matriculados(numero_estudante, inscricoes(nome_completo))',
+        'id, item, valor, pago, estado, data_pagamento, criado_em, alunos_matriculados(numero_estudante, inscricoes(nome_completo), turmas(nome_turma))',
       )
       .eq('pago', true)
       .gte('data_pagamento', mes)
@@ -568,6 +568,57 @@ export default function Pagamentos() {
               configurar valores por curso
             </Link>
           </p>
+
+          {/* Pós-conclusão pagos no mês — com recibo, como as mensalidades */}
+          {posPagos !== null && posPagos.length > 0 && (
+            <div className="cell mt-3">
+              <div className="border-b border-line px-4 py-3">
+                <p className="label-section">Certificados e faixas pagos em {mesLabel(mes)}</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-[13px]">
+                  <thead>
+                    <tr className="border-b border-line text-[11px] uppercase tracking-[0.06em] text-ink-faint">
+                      <th className="px-4 py-2.5 font-medium">Aluno</th>
+                      <th className="px-4 py-2.5 font-medium">Item</th>
+                      <th className="px-4 py-2.5 font-medium">Valor</th>
+                      <th className="px-4 py-2.5 font-medium">Pagamento</th>
+                      <th className="px-4 py-2.5 font-medium text-right">Acções</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line">
+                    {posPagos.map((i) => (
+                      <tr key={i.id} className="hover:bg-canvas">
+                        <td className="px-4 py-2.5">
+                          <p className="font-medium text-ink">
+                            {i.alunos_matriculados?.inscricoes?.nome_completo ?? '—'}
+                          </p>
+                          <p className="font-mono text-[11px] text-ink-faint">
+                            {i.alunos_matriculados?.numero_estudante}
+                          </p>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <span className="inline-flex items-center rounded bg-raised px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.04em] text-ink-muted">
+                            {ITEM_POS_LABELS[i.item]}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 tnum text-ink">{fmtMzn(Number(i.valor))}</td>
+                        <td className="px-4 py-2.5 font-mono text-[11px] text-ink-faint">{i.data_pagamento ?? ''}</td>
+                        <td className="px-4 py-2.5 text-right">
+                          <button
+                            onClick={() => void imprimirReciboPos(i)}
+                            className="btn-secondary px-2.5 py-1 text-xs"
+                          >
+                            Recibo
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </>
       )}
       </>
