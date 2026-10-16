@@ -103,6 +103,9 @@ export interface PosConclusao {
   valor: number
   estado: EstadoItemPos
   pago: boolean
+  /** Data em que foi marcado como pago (migração 021) — atribui o valor ao mês. */
+  data_pagamento: string | null
+  pago_por: string | null
   data_entrega: string | null
   criado_em: string
   updated_at: string

@@ -126,10 +126,31 @@ function guardarFila(fila: ItemFila[]) {
   else localStorage.setItem(CHAVE_FILA, JSON.stringify(fila))
 }
 
+/** Dias que uma falha de sincronização fica guardada antes de expirar. */
+const DIAS_FALHA = 7
+
+/**
+ * Falhas de sincronização guardadas neste computador.
+ *
+ * Descartam-se sozinhas ao fim de `DIAS_FALHA` dias: sem isso, o aviso
+ * vermelho ficava para sempre no canto do ecrã (a falha acontece uma vez e o
+ * registo nunca era removido). O utilizador pode também limpá-las à mão
+ * (`limparFalhas`), pelo botão ✕ ao lado do aviso.
+ */
 function lerFalhas(): FalhaSincronismo[] {
   try {
     const v = JSON.parse(localStorage.getItem(CHAVE_FALHAS) ?? '[]') as unknown
-    return Array.isArray(v) ? (v as FalhaSincronismo[]) : []
+    const todas = Array.isArray(v) ? (v as FalhaSincronismo[]) : []
+    const limite = Date.now() - DIAS_FALHA * 24 * 60 * 60 * 1000
+    const validas = todas.filter((f) => {
+      const quando = Date.parse(f.quando ?? '')
+      return Number.isFinite(quando) ? quando >= limite : true
+    })
+    if (validas.length !== todas.length) {
+      if (validas.length === 0) localStorage.removeItem(CHAVE_FALHAS)
+      else localStorage.setItem(CHAVE_FALHAS, JSON.stringify(validas))
+    }
+    return validas
   } catch {
     return []
   }
@@ -139,10 +160,60 @@ export function listarFalhas(): FalhaSincronismo[] {
   return lerFalhas()
 }
 
+/** Limpa os avisos de falhas de sincronização (o botão ✕ da barra offline). */
+export function limparFalhas(): void {
+  try {
+    localStorage.removeItem(CHAVE_FALHAS)
+  } catch {
+    /* noop */
+  }
+  actualizarEstado({ falhas: 0 })
+}
+
 function registarFalha(item: ItemFila, motivo: string) {
   const falhas = lerFalhas()
+  // A mesma escrita que falha duas vezes não deve aparecer duas vezes no aviso.
+  const jaRegistada = falhas.some((f) => f.caminho === item.caminho && f.corpo === item.corpo && f.motivo === motivo)
+  if (jaRegistada) return
   falhas.push({ ...item, motivo, quando: new Date().toISOString() })
   localStorage.setItem(CHAVE_FALHAS, JSON.stringify(falhas.slice(-50)))
+}
+
+/**
+ * Traduz o erro do PostgREST numa frase que se possa mostrar à secretaria.
+ * Sem isto, o aviso mostrava o texto cru do PostgreSQL, em inglês
+ * (“duplicate key value violates unique constraint …”).
+ */
+function motivoAmigavel(
+  codigo: string | undefined,
+  mensagem: string | undefined,
+  status: number,
+): string {
+  switch (codigo) {
+    case '23505':
+      return 'o registo já existe no servidor — não foi duplicado (código 23505)'
+    case '23503':
+      return 'o registo relacionado já não existe no servidor — atualize a página (código 23503)'
+    case '23514':
+      return 'os valores enviados não são aceites pelas regras do servidor (código 23514)'
+    case '42501':
+      return 'a conta com que fez a alteração já não tem permissão para a aplicar (código 42501)'
+    default:
+      break
+  }
+  if (status === 401 || status === 403) return 'a sessão terminou antes de a alteração ser aceite — entre novamente'
+  if (status === 404) return 'o registo já não existe no servidor (pode ter sido apagado)'
+  return mensagem ? `${mensagem} (HTTP ${status})` : `o servidor recusou a alteração (HTTP ${status})`
+}
+
+/** Lê a resposta de erro do servidor e devolve o motivo já em linguagem corrente. */
+async function motivoDaResposta(resp: Response): Promise<string> {
+  try {
+    const erro = (await resp.json()) as { message?: string; code?: string }
+    return motivoAmigavel(erro.code, erro.message, resp.status)
+  } catch {
+    return motivoAmigavel(undefined, undefined, resp.status)
+  }
 }
 
 function novoId(): string {
@@ -291,6 +362,18 @@ const fetchInterceptado = async (input: RequestInfo | URL, init?: RequestInit): 
       if (fila.length >= MAX_FILA) {
         return respostaErro(503, 'Fila offline cheia — sincronize antes de continuar.')
       }
+      // A mesma escrita (método + endereço + corpo) não entra duas vezes: dois
+      // cliques seguidos no mesmo botão geravam dois inserts iguais, e o segundo
+      // falhava sempre no servidor com “duplicate key” (ex.: código de curso).
+      const jaNaFila = fila.some(
+        (f) => f.metodo === info.metodo && f.caminho === info.url && f.corpo === info.corpo,
+      )
+      if (jaNaFila) {
+        return respostaErro(
+          503,
+          'Sem ligação à internet: esta alteração já está guardada neste computador a aguardar sincronização.',
+        )
+      }
       fila.push({
         id: novoId(),
         metodo: info.metodo,
@@ -366,13 +449,7 @@ export async function sincronizarAgora(): Promise<void> {
       if (resp.ok) {
         sincronizadas++
       } else {
-        let motivo = `o servidor recusou (HTTP ${resp.status})`
-        try {
-          const txt = (await resp.json()) as { message?: string }
-          if (txt?.message) motivo = txt.message
-        } catch {
-          /* corpo não-JSON */
-        }
+        const motivo = await motivoDaResposta(resp)
         registarFalha(item, motivo)
         falhasNovas++
       }

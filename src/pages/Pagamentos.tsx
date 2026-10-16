@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import type { EstadoPagamento, MetodoPagamento, Pagamento } from '../types/database'
+import type { EstadoPagamento, MetodoPagamento, Pagamento, PosConclusao } from '../types/database'
 import { ESTADO_PAGAMENTO_LABELS, METODO_LABELS, mesLabel } from '../types/database'
 import { useAsyncData } from '../hooks/useAsyncData'
 import { EmptyState, ErrorMessage, LoadingBlock, PageHeader } from '../components/ui'
@@ -16,6 +16,13 @@ import { useIsAdmin } from '../hooks/usePerfil'
 /** 'YYYY-MM-01' para o mês actual */
 const mesActual = () => {
   const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+}
+
+/** 'YYYY-MM-01' do mês seguinte — limite superior (exclusive) do mês pedido. */
+const mesSeguinte = (mes: string) => {
+  const d = new Date(`${mes}T12:00:00`)
+  d.setMonth(d.getMonth() + 1)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
 }
 
@@ -272,6 +279,32 @@ export default function Pagamentos() {
 
   const { data: pagamentos, loading, error, reload } = useAsyncData<Pagamento[]>(fetcher, [mes])
 
+  // Certificados e faixas pagos neste mês. Vivem noutra tabela (não são
+  // mensalidades, e cada aluno só tem uma mensalidade por mês), por isso não
+  // entram na lista acima — mas têm de contar nos valores do mês.
+  const posFetcher = useCallback(async () => {
+    const { data, error: err } = await supabase
+      .from('pos_conclusao')
+      .select(
+        'id, item, valor, pago, data_pagamento, alunos_matriculados(numero_estudante, inscricoes(nome_completo))',
+      )
+      .eq('pago', true)
+      .gte('data_pagamento', mes)
+      .lt('data_pagamento', mesSeguinte(mes))
+      .order('data_pagamento', { ascending: false })
+    return { data: (data ?? []) as unknown as PosConclusao[], error: err }
+  }, [mes])
+
+  const { data: posPagos } = useAsyncData<PosConclusao[]>(posFetcher, [mes])
+
+  const posKpis = useMemo(() => {
+    const lista = posPagos ?? []
+    return {
+      quantidade: lista.length,
+      recebido: lista.reduce((s, i) => s + Number(i.valor), 0),
+    }
+  }, [posPagos])
+
   // KPIs do mês
   const kpis = useMemo(() => {
     const activos = (pagamentos ?? []).filter((p) => p.estado !== 'cancelado')
@@ -399,7 +432,7 @@ export default function Pagamentos() {
       ) : (
         <>
           {/* Faixa de KPIs financeiros */}
-          <div className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-5">
             <div className="cell px-4 py-3">
               <p className="label-section">Esperado</p>
               <p className="mt-1 font-serif text-[22px] leading-none tnum text-ink">{fmtMzn(kpis.esperado)}</p>
@@ -423,6 +456,15 @@ export default function Pagamentos() {
                   style={{ width: `${kpis.taxa}%` }}
                 />
               </div>
+            </div>
+            <div className="cell px-4 py-3">
+              <p className="label-section">Certificados e faixas</p>
+              <p className="mt-1 font-serif text-[22px] leading-none tnum text-ok">{fmtMzn(posKpis.recebido)}</p>
+              <p className="mt-1 text-[11px] text-ink-faint">
+                {posKpis.quantidade === 0
+                  ? 'Nada pago neste mês'
+                  : `${posKpis.quantidade} item(ns) de pós-conclusão pago(s) em ${mesLabel(mes)}`}
+              </p>
             </div>
           </div>
 

@@ -193,6 +193,11 @@ export default function PosConclusaoPage() {
                           <span className="inline-flex items-center gap-1.5 text-ok">
                             <span className="dot bg-ok" aria-hidden />
                             Pago
+                            {i.data_pagamento && (
+                              <span className="font-mono text-[11px] text-ink-faint">
+                                {format.date(i.data_pagamento)}
+                              </span>
+                            )}
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1.5 text-warn">

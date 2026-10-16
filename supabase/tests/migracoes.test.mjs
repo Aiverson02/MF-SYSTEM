@@ -1,7 +1,9 @@
 /**
  * Testes das migrações 015 (avaliações e notas), 016 (portal dos formadores),
  * 017 (search_path de `nota_minima_aprovacao`), 018 (lista staff sem contas
- * de formador) e 019 (endurecimento da revisão de segurança).
+ * de formador), 019 (endurecimento da revisão de segurança), 020 (origem da
+ * inscrição decidida pela sessão) e 021 (data do pagamento do certificado e da
+ * faixa).
  *
  * Correm num Postgres real embutido — sem Docker, sem internet e sem tocar no
  * projecto Supabase de produção:
@@ -25,6 +27,8 @@ const FICHEIROS = [
   '017_nota_minima_search_path.sql',
   '018_listar_staff_so_staff.sql',
   '019_endurecimento_revisao_seguranca.sql',
+  '020_origem_inscricao_por_sessao.sql',
+  '021_pos_conclusao_data_pagamento.sql',
 ]
 
 // ---------------------------------------------------------------- ferramentas
@@ -128,6 +132,12 @@ await db.exec(`
   insert into public.turma_formadores (turma_id, formador_id) values
     ('${tA1}', '${f1}'),
     ('${tA2}', '${f2}');
+
+  -- Contas staff reais: as funções gravam auth.uid() (ex.: pago_por na 021),
+  -- por isso o id usado no JWT dos testes tem de existir em auth.users.
+  insert into auth.users (id, email, encrypted_password, raw_app_meta_data, created_at, updated_at) values
+    ('${uStaff}', 'secretaria@exemplo.mz', 'x', '{"papel":"secretaria"}'::jsonb, now(), now()),
+    ('${uAdmin}', 'admin@exemplo.mz', 'x', '{"papel":"admin"}'::jsonb, now(), now());
 `)
 
 // ===========================================================================
@@ -451,6 +461,84 @@ verificar('019: papel declarado em user_metadata nunca aparece como admin',
   externa?.papel === 'secretaria', String(externa?.papel))
 verificar('019: conta de formador continua fora da lista staff',
   !listaComSpoof.some((u) => u.email === 'bento@exemplo.mz' || u.email === 'ana@exemplo.mz'))
+
+// ===========================================================================
+grupo('020 — origem da inscrição decide-se pela sessão')
+
+// O botão *Nova Inscrição* do painel usa o mesmo formulário do site, que grava
+// pela RPC pública. Antes, tudo o que passava por ali ficava marcado como
+// 'online' — e uma inscrição registada à mão aparecia no grupo "Do site".
+const rStaff = await como(staff, `
+  select * from public.submeter_inscricao_publica('Aluno Balcao', 'BI-999', '2004-05-05', 'M', null, '840000999', '${cA}', 'manha'::public.turno)
+`)
+verificar('020: secretaria consegue registar a inscrição', !!rStaff[0]?.numero_inscricao, JSON.stringify(rStaff[0]))
+verificar('020: inscrição registada pela secretaria fica presencial',
+  (await como(staff, `select origem from public.inscricoes where numero_inscricao = '${rStaff[0]?.numero_inscricao}'`))[0]?.origem === 'presencial',
+  String(rStaff[0]?.numero_inscricao))
+
+const rAnon = await como(null, `
+  select * from public.submeter_inscricao_publica('Aluno Site', 'BI-998', '2004-06-06', 'F', 'site@exemplo.mz', '840000998', '${cA}', 'manha'::public.turno)
+`)
+verificar('020: inscrição feita no site continua online',
+  (await como(staff, `select origem from public.inscricoes where numero_inscricao = '${rAnon[0]?.numero_inscricao}'`))[0]?.origem === 'online',
+  String(rAnon[0]?.numero_inscricao))
+
+const rForm = await como(formadorAna, `
+  select * from public.submeter_inscricao_publica('Aluno Formador', 'BI-997', '2004-07-07', 'M', null, '840000997', '${cA}', 'manha'::public.turno)
+`)
+verificar('020: conta de formador não é tratada como balcão da secretaria',
+  (await como(staff, `select origem from public.inscricoes where numero_inscricao = '${rForm[0]?.numero_inscricao}'`))[0]?.origem === 'online',
+  String(rForm[0]?.numero_inscricao))
+
+// ===========================================================================
+grupo('021 — pós-conclusão: data do pagamento')
+
+// Sem data não há como atribuir o valor a um mês: a página de Pagamentos
+// trabalha por mês, e o certificado pago não aparecia em lado nenhum.
+const novoPos = await como(staff, `
+  insert into public.pos_conclusao (aluno_id, item, valor) values ('${a2}', 'certificado', 350)
+  returning id, data_pagamento
+`)
+const idPos = novoPos[0]?.id
+verificar('021: item nasce por pagar e sem data', novoPos[0]?.data_pagamento === null, String(novoPos[0]?.data_pagamento))
+
+const marcado = await como(staff, `
+  update public.pos_conclusao set pago = true where id = '${idPos}'
+  returning data_pagamento = current_date as data_ok, pago_por
+`)
+verificar('021: marcar pago grava a data de hoje', marcado[0]?.data_ok === true, String(marcado[0]?.data_ok))
+verificar('021: fica registado quem registou o pagamento', marcado[0]?.pago_por === uStaff, String(marcado[0]?.pago_por))
+
+const porMes = await como(staff, `
+  select coalesce(sum(valor), 0) as total
+    from public.pos_conclusao
+   where pago
+     and data_pagamento >= date_trunc('month', current_date)::date
+     and data_pagamento <  (date_trunc('month', current_date) + interval '1 month')::date
+`)
+verificar('021: o valor passa a contar no mês do pagamento', Number(porMes[0]?.total) === 350, String(porMes[0]?.total))
+
+const semData = (await como(staff, `select data_pagamento from public.pos_conclusao where id = '${idPos}'`))[0]?.data_pagamento
+await como(staff, `update public.pos_conclusao set valor = 400 where id = '${idPos}'`)
+const depoisDaEdicao = (await como(staff, `select data_pagamento from public.pos_conclusao where id = '${idPos}'`))[0]?.data_pagamento
+verificar('021: editar a linha não reescreve a data do pagamento', String(semData) === String(depoisDaEdicao))
+
+const desfeito = await como(staff, `
+  update public.pos_conclusao set pago = false where id = '${idPos}'
+  returning data_pagamento, pago_por
+`)
+verificar('021: desfazer o pagamento limpa data e autor',
+  desfeito[0]?.data_pagamento === null && desfeito[0]?.pago_por === null,
+  JSON.stringify(desfeito[0]))
+
+verificar('021: função do trigger não é chamável pela API',
+  (await db.query(`select has_function_privilege('authenticated', 'public.registar_pagamento_pos_conclusao()', 'EXECUTE') as ok`)).rows[0].ok === false)
+verificar('021: função do trigger tem search_path fixo',
+  /search_path/.test((await db.query(`
+    select coalesce(array_to_string(proconfig, ','), '') as o
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = 'registar_pagamento_pos_conclusao'
+  `)).rows[0]?.o ?? ''))
 
 // ===========================================================================
 console.log(falhas === 0 ? `\n${total} verificações passaram.` : `\n${falhas} de ${total} verificações FALHARAM.`)

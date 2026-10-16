@@ -144,6 +144,7 @@ export const ESQUEMA = `
     turno_pretendido  public.turno not null,
     estado            text not null default 'pendente',
     motivo_rejeicao   text,
+    origem            text not null default 'presencial',
     created_at        timestamptz not null default now(),
     updated_at        timestamptz not null default now()
   );
@@ -157,6 +158,23 @@ export const ESQUEMA = `
     estado_aluno     public.estado_aluno_enum not null default 'ativo',
     created_at       timestamptz not null default now(),
     updated_at       timestamptz not null default now()
+  );
+
+  create type public.estado_item_pos as enum ('pendente', 'emitido', 'entregue');
+
+  -- Espelha a 010 (certificado/faixa por aluno). A 021 acrescenta-lhe a data do
+  -- pagamento, pelo que a tabela base tem de existir também aqui.
+  create table public.pos_conclusao (
+    id             uuid primary key default gen_random_uuid(),
+    aluno_id       uuid not null references public.alunos_matriculados(id) on delete cascade,
+    item           text not null check (item in ('certificado', 'faixa')),
+    valor          numeric(12,2) not null default 0,
+    estado         public.estado_item_pos not null default 'pendente',
+    pago           boolean not null default false,
+    data_entrega   date,
+    criado_em      timestamptz not null default now(),
+    updated_at     timestamptz not null default now(),
+    unique (aluno_id, item)
   );
 
   create table public.formadores (

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { pushToast } from './ToastHost'
 import {
   getEstadoOffline,
+  limparFalhas,
   listarFalhas,
   sincronizarAgora,
   subscreverEstado,
@@ -12,7 +13,7 @@ import {
  * Indicador flutuante (canto inferior esquerdo) do estado de ligação:
  *  - âmbar: offline (dados em cache / alterações pendentes)
  *  - azul:  a sincronizar
- *  - vermelho: falhas de sincronização (toque para ver motivos)
+ *  - vermelho: falhas de sincronização (toque para ver motivos; ✕ para limpar)
  * Quando tudo está sincronizado e online, não renderiza nada.
  */
 export default function BarraOffline() {
@@ -62,16 +63,37 @@ export default function BarraOffline() {
     }
   }
 
+  function limpar() {
+    limparFalhas()
+    pushToast(
+      'Avisos de falhas limpos. As alterações que falharam não foram aplicadas — refaça-as se ainda precisar delas.',
+      'info',
+    )
+  }
+
   return (
-    <button
-      type="button"
-      role="status"
-      onClick={clicar}
-      title="Estado de ligação e sincronização (toque para ver detalhes)"
-      className={`fixed bottom-6 left-6 z-[100] pointer-events-auto flex items-center gap-2 rounded-full border border-line px-4 py-2 text-xs font-semibold shadow-lg ${estilo}`}
-    >
-      <span aria-hidden>{icone}</span>
-      <span>{texto}</span>
-    </button>
+    <div className="pointer-events-auto fixed bottom-6 left-6 z-[100] flex items-center gap-1.5">
+      <button
+        type="button"
+        role="status"
+        onClick={clicar}
+        title="Estado de ligação e sincronização (toque para ver detalhes)"
+        className={`flex items-center gap-2 rounded-full border border-line px-4 py-2 text-xs font-semibold shadow-lg ${estilo}`}
+      >
+        <span aria-hidden>{icone}</span>
+        <span>{texto}</span>
+      </button>
+      {estado.falhas > 0 && (
+        <button
+          type="button"
+          onClick={limpar}
+          aria-label="Limpar avisos de falhas de sincronização"
+          title="Limpar avisos de falhas"
+          className="rounded-full border border-line bg-surface px-2.5 py-2 text-xs font-semibold text-ink-muted shadow-lg hover:text-ink"
+        >
+          ✕
+        </button>
+      )}
+    </div>
   )
 }
