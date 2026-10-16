@@ -1,7 +1,7 @@
 /**
  * Testes das migrações 015 (avaliações e notas), 016 (portal dos formadores),
- * 017 (search_path de `nota_minima_aprovacao`) e 018 (lista staff sem contas
- * de formador).
+ * 017 (search_path de `nota_minima_aprovacao`), 018 (lista staff sem contas
+ * de formador) e 019 (endurecimento da revisão de segurança).
  *
  * Correm num Postgres real embutido — sem Docker, sem internet e sem tocar no
  * projecto Supabase de produção:
@@ -24,6 +24,7 @@ const FICHEIROS = [
   '016_portal_formadores.sql',
   '017_nota_minima_search_path.sql',
   '018_listar_staff_so_staff.sql',
+  '019_endurecimento_revisao_seguranca.sql',
 ]
 
 // ---------------------------------------------------------------- ferramentas
@@ -400,6 +401,56 @@ verificar('018: lista staff mantém a secretaria criada',
   staffLista.some((u) => u.email === 'nova.secretaria@exemplo.mz' && u.papel === 'secretaria'))
 verificar('018: só papéis staff na lista',
   staffLista.length > 0 && staffLista.every((u) => u.papel === 'admin' || u.papel === 'secretaria'))
+
+// ===========================================================================
+grupo('019 — endurecimento da revisão de segurança')
+
+// A. O catálogo público de formadores deixou de expor contacto pessoal. Antes,
+//    `anon` tinha SELECT na tabela inteira: GET /rest/v1/formadores?select=
+//    email,telefone devolvia 200 com os dados (confirmado em produção).
+const anonFormadores = (await db.query(`
+  select
+    has_table_privilege('anon', 'public.formadores', 'SELECT')                        as tabela,
+    has_column_privilege('anon', 'public.formadores', 'email', 'SELECT')              as email,
+    has_column_privilege('anon', 'public.formadores', 'telefone', 'SELECT')           as telefone,
+    has_column_privilege('anon', 'public.formadores', 'nome', 'SELECT')               as nome,
+    has_column_privilege('anon', 'public.formadores', 'especialidade', 'SELECT')      as especialidade
+`)).rows[0]
+verificar('019: anon sem SELECT na tabela de formadores', anonFormadores.tabela === false)
+verificar('019: anon não lê email nem telefone dos formadores', anonFormadores.email === false && anonFormadores.telefone === false)
+verificar('019: anon continua a ler o catálogo (nome e especialidade)', anonFormadores.nome === true && anonFormadores.especialidade === true)
+verificar('019: secretaria continua a ler os contactos (select *)',
+  (await db.query(`select has_table_privilege('authenticated', 'public.formadores', 'SELECT') as ok`)).rows[0].ok === true)
+
+// B. A lista de contas staff só responde a quem é staff. Antes bastava estar
+//    autenticado — um formador listava os emails da secretaria e do admin.
+verificar('019: formador não lista as contas staff',
+  (await como(formadorAna, `select * from public.listar_utilizadores_staff()`)).length === 0)
+verificar('019: sem sessão não lista contas staff',
+  (await como(null, `select * from public.listar_utilizadores_staff()`)).length === 0)
+verificar('019: secretaria continua a ver a lista',
+  (await como(staff, `select * from public.listar_utilizadores_staff()`)).length > 0)
+
+// C. Papel auto-declarado em `user_metadata` (campo que o próprio utilizador
+//    escreve via auth.updateUser) não promove ninguém.
+const formadorComSpoof = { id: u2, papel: 'formador', metaUtilizador: { papel: 'admin' } }
+verificar('019: eh_admin() ignora user_metadata.papel',
+  (await como(formadorComSpoof, `select public.eh_admin() as v`))[0].v === false)
+verificar('019: spoof de user_metadata não abre a lista staff',
+  (await como(formadorComSpoof, `select * from public.listar_utilizadores_staff()`)).length === 0)
+
+// Conta criada fora do painel (app_metadata vazio) com papel declarado às
+// escondidas em user_metadata: na lista aparece como 'secretaria' (o default),
+// nunca como o papel que ela própria escreveu.
+const u3 = '05000000-0000-0000-0000-000000000005'
+await como(admin, `insert into auth.users (id, email, encrypted_password, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
+  values ('${u3}', 'conta.externa@exemplo.mz', 'x', '{}'::jsonb, '{"papel":"admin"}'::jsonb, now(), now())`)
+const listaComSpoof = await como(admin, `select email, papel from public.listar_utilizadores_staff()`)
+const externa = listaComSpoof.find((u) => u.email === 'conta.externa@exemplo.mz')
+verificar('019: papel declarado em user_metadata nunca aparece como admin',
+  externa?.papel === 'secretaria', String(externa?.papel))
+verificar('019: conta de formador continua fora da lista staff',
+  !listaComSpoof.some((u) => u.email === 'bento@exemplo.mz' || u.email === 'ana@exemplo.mz'))
 
 // ===========================================================================
 console.log(falhas === 0 ? `\n${total} verificações passaram.` : `\n${falhas} de ${total} verificações FALHARAM.`)

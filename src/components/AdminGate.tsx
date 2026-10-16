@@ -9,8 +9,8 @@ interface AdminGateProps {
 /**
  * Porão de segurança (defense in depth) para qualquer função executiva.
  *
- * - No servidor o controle já existe nas RPCs/RLS (ver migrations 011/012 e
- *   outras funções que usam auth.jwt()->'user_metadata'|'app_metadata'->>'papel').
+ * - No servidor o controle já existe nas RPCs/RLS (ver migrations 014 e 019:
+ *   o papel é lido só de `auth.jwt()->'app_metadata'->>'papel'`).
  * - Este componente esconde a UI para quem não é admin, mas nunca é a única
  *   barreira: tudo o que ele rende tem de estar protegido também no servidor.
  */

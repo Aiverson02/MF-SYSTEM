@@ -198,11 +198,17 @@ export async function criarBanco() {
   return db
 }
 
-/** Passa a executar como o utilizador/papel indicado (equivale a um JWT). */
-export async function autenticar(db, { id = null, papel = null } = {}) {
+/**
+ * Passa a executar como o utilizador/papel indicado (equivale a um JWT).
+ * `metaUtilizador` replica `user_metadata`, o campo que o PRÓPRIO utilizador
+ * escreve com auth.updateUser({ data }) — usado para provar que o papel aí
+ * declarado não autoriza nada (migração 019).
+ */
+export async function autenticar(db, { id = null, papel = null, metaUtilizador = null } = {}) {
   const claims = JSON.stringify({
     sub: id,
     app_metadata: papel ? { papel } : {},
+    user_metadata: metaUtilizador ?? {},
     role: 'authenticated',
   })
   await db.query(`select set_config('request.jwt.claims', $1, false)`, [claims])

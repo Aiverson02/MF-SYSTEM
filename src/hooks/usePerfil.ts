@@ -24,6 +24,9 @@ export function casaDoPapel(papel: Perfil['papel']): string {
  * critério que as RPCs do portal usam para autorizar (`formadores.user_id =
  * auth.uid()`). Assim quem está ligado como formador entra no portal dele em
  * vez de cair no painel da secretaria.
+ *
+ * `user_metadata` NÃO é consultado: é escrito pelo próprio utilizador
+ * (auth.updateUser) e por isso não vale como papel — ver migração 019.
  */
 export async function resolverPapel(): Promise<Perfil['papel']> {
   const { data } = await supabase.auth.getUser()
@@ -31,8 +34,7 @@ export async function resolverPapel(): Promise<Perfil['papel']> {
   if (!user) return 'desconhecido'
 
   const appMeta = (user.app_metadata ?? {}) as Record<string, unknown>
-  const userMeta = (user.user_metadata ?? {}) as Record<string, unknown>
-  const papel = String(appMeta.papel ?? userMeta.papel ?? '')
+  const papel = String(appMeta.papel ?? '')
   if (papel === 'admin' || papel === 'secretaria' || papel === 'formador') return papel
 
   const { data: formadorId, error } = await supabase.rpc('formador_actual')
@@ -46,8 +48,8 @@ export async function resolverPapel(): Promise<Perfil['papel']> {
  * O papel vive em `app_metadata` (migração 014) — escrita exclusiva do
  * service_role, IMUTÁVEL pelo próprio utilizador. Antes vivia em
  * `user_metadata`, que qualquer conta podia alterar via auth.updateUser()
- * (escalação de privilégios). O fallback para user_metadata existe apenas
- * para transição e não confere permissão alguma no servidor.
+ * (escalação de privilégios); a migração 019 tirou também o último fallback
+ * que ainda existia nesse campo.
  *
  * Nota: isto é apenas para a UI esconder/mostrar acções. A garantia real de
  * segurança está no servidor (RPCs security definer + RLS) — nunca no cliente.

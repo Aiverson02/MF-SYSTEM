@@ -189,6 +189,57 @@ Funções trigger/internas (`validar_limite_cursos`, `criar_pos_conclusao`,
   prazo terminado, nota fora da escala, aluno de outra turma, pauta atribuída a
   outro formador, secretaria a tentar criar conta de formador).
 
+## Revisão de segurança (2026-10-16) — migração 019
+
+Revisão feita sobre o código, o bundle publicado e a base de dados real
+(consultas a `pg_proc`, `pg_class`/`has_column_privilege`, `pg_policies` e um
+pedido HTTP com a chave pública).
+
+- **[MÉDIA — corrigido] `anon` lia `email` e `telefone` dos formadores.**
+  `public.formadores` tinha `grant select` na tabela inteira para `anon`
+  (004/014) sobre uma política `using (true)`. Como a chave pública viaja no
+  bundle, qualquer visitante podia pedir
+  `GET /rest/v1/formadores?select=email,telefone` — **HTTP 200 com dados,
+  confirmado no projecto real**. Nenhuma página pública lê esta tabela
+  (verificado em `src/`), mas a intenção documentada era um catálogo público:
+  a 019 revoga o acesso à tabela e concede só `id, nome, especialidade, ativo`.
+  A secretaria mantém `select *` (o painel mostra os contactos).
+- **[MÉDIA — corrigido] `user_metadata.papel` ainda decidia a lista de staff.**
+  `listar_utilizadores_staff()` usava
+  `coalesce(app_metadata, user_metadata, 'secretaria')`. `user_metadata` é
+  escrito pelo próprio utilizador (`auth.updateUser({ data: { papel } })`),
+  pelo que uma conta com `app_metadata.papel` vazio podia declarar-se `admin` e
+  aparecer como tal no painel *Utilizadores* — com o select de papel activo
+  para essa linha. A 014 já tinha tirado este campo das decisões de
+  `eh_admin()`/`eh_staff()`; a 019 remove-o também daqui. Fonte única:
+  `raw_app_meta_data`.
+- **[BAIXA — corrigido] A lista de contas staff não verificava o chamador.**
+  Qualquer conta autenticada — um formador, por exemplo — podia executar a RPC
+  e ler os emails da secretaria e do administrador. A 019 passa a exigir
+  `eh_staff()`.
+- **[CORRIGIDO] CSP ausente no `_headers`.** O `netlify.toml` e o `vercel.json`
+  traziam a CSP, mas o `public/_headers` (lido pelo Cloudflare Pages) só tinha
+  `Cache-Control`: um deploy fora do Netlify servia o site **sem** CSP. Passou a
+  ter os mesmos headers, com valores idênticos aos das outras plataformas
+  (comparação directa das três strings de CSP).
+- **[CORRIGIDO] A interface deixava de confiar em `user_metadata`.** Além do
+  SQL, `resolverPapel()`/`usePerfil()` aceitavam `user_metadata.papel` como
+  fallback: uma conta podia "promover-se" na UI (o servidor continuava a
+  recusar tudo, mas via-se o painel e os botões de admin). Removido.
+- **Verificado sem problemas**: 55 de 55 funções `security definer` do esquema
+  `public` têm `search_path` fixo (`pg_proc.proconfig`); as 17 tabelas têm RLS
+  activa (e `financas_*` com `force row level security`); `anon` só lê `cursos`,
+  `turmas`, `config_instituicao` e o catálogo de formadores, e só escreve
+  `inscricoes`/`documentos_inscricao` (inscrição pública, com limites de
+  formato); o bucket `documentos-inscricao` é **privado** (`public = false`) com
+  leitura restrita a `eh_staff()` e o `logotipos` é público (é o logótipo do
+  site); as alterações de papel de staff (`alterar_papel_staff`) validam
+  `eh_admin()` e escrevem em `app_metadata`, apagando o mesmo campo de
+  `user_metadata`.
+- **Os testes novos discriminam**: corridos sem a 019, os dois casos centrais
+  falham (a conta que se declara admin aparece como `admin`; um formador vê 2
+  linhas da lista staff). `npm run test:db` → **100 verificações**.
+
 ## Riscos residuais e recomendações
 
 1. **DevDeps com avisos HIGH** (toolchain apenas, não chega ao utilizador
@@ -206,3 +257,14 @@ Funções trigger/internas (`validar_limite_cursos`, `criar_pos_conclusao`,
 5. **Rate-limit de camada extra**: as RPCs públicas têm limites de input, mas
    não de frequência; para tráfego público elevado, ativar o rate-limit do
    Supabase API Gateway ou Cloudflare (gratuito no plano free do Netlify/Vercel).
+6. **Histórico de migrações incompleto**: 015 e 016 estão aplicadas em produção
+   mas não constam de `supabase_migrations.schema_migrations` (foram corridas
+   por SQL directo). Se passares a aplicar por `supabase db push`, esses
+   ficheiros voltam a correr — são idempotentes (`create table if not exists`,
+   `create index if not exists`, `drop policy if exists` antes de cada
+   `create policy`, `create or replace function`), pelo que reaplicá-las é
+   seguro — mas convém confirmar isso numa cópia antes do primeiro `db push`.
+7. **Políticas de Storage fora do repositório**: as políticas do bucket
+   `documentos-inscricao` (`docs_leitura_staff`, `docs_gestao_staff`,
+   `docs_eliminar_staff`) existem no projecto mas não nas migrações — um
+   ambiente novo não as recria. Versionar antes de criar o próximo ambiente.
