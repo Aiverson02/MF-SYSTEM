@@ -12,9 +12,11 @@ export default defineConfig({
       manifest: {
         name: 'SIGA — Gestão de Inscrições',
         short_name: 'SIGA',
-        description: 'Painel da secretaria: inscrições, matrículas, pagamentos e relatórios.',
+        description: 'Painel da secretaria e portal dos formadores.',
         lang: 'pt',
-        start_url: '/admin/dashboard',
+        // '/' encaminha por papel: painel (secretaria/admin) ou portal (formador),
+        // para o mesmo PWA instalado servir os dois tipos de utilizador.
+        start_url: '/',
         scope: '/',
         display: 'standalone',
         background_color: '#faf9f7',
@@ -31,6 +33,12 @@ export default defineConfig({
         // POST e encaminha as escritas para a fila de sincronização — daí
         // não haver regra Workbox para /rest/v1/.
         navigateFallback: '/index.html',
+        // Actualização imediata em produção: o novo SW assume o controlo e
+        // limpa os caches antigos sem esperar que o utilizador feche os separadores
+        // (sem isto, um deploy novo pode demorar horas a chegar aos telemóveis).
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         runtimeCaching: [
           {

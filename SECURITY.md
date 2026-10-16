@@ -143,6 +143,52 @@ Funções trigger/internas (`validar_limite_cursos`, `criar_pos_conclusao`,
   brute-force, inputs gigantes, `javascript:` URL — **todos bloqueados**
 - Histógit git: **zero** segredos (PAT, service_role, chaves) no histórico completo
 
+## Actualização — portal dos formadores (migração 016)
+
+- **Papel novo `formador`** em `app_metadata` (como `admin`/`secretaria`), ligado
+  ao registo em `formadores.user_id`. `eh_staff()` é falso para formadores: não
+  herdam nenhum acesso da secretaria (testado em `npm run test:db`).
+- **Sem superfície directa de tabelas para formadores**: o portal fala apenas por
+  RPCs `security definer` (`pautas_do_formador`, `pauta_da_turma`,
+  `guardar_notas_pauta`, `resumo_turma`) que devolvem só número de estudante e
+  nome. BI, contactos, documentos, notas de outras turmas e finanças ficam fora.
+  `anon` não executa nenhuma delas nem lê pautas, atribuições ou histórico.
+- **Autorização no servidor, item a item**: a escrita exige pauta aberta pela
+  secretaria, formador atribuído à turma (ou indicado na pauta), aluno da turma e
+  nota dentro da escala. Pauta fechada recusa escrita do formador.
+- **Registo académico com rasto**: `notas_historico` guarda cada lançamento,
+  alteração e remoção (valor anterior → novo, conta, formador, data). A tabela não
+  tem grants: lê-se só pela RPC `historico_notas_aluno` (staff).
+- **[CORRIGIDO] Criação de contas staff** (014): `criar_utilizador_staff` chamava
+  `jsonb_array_build_text`, função inexistente no PostgreSQL — a RPC falhava
+  sempre em execução, pelo que contas criadas pela app "não funcionavam". A 016
+  recria a função com `jsonb_build_array` e passa a recusar emails duplicados.
+  (As contas existentes foram criadas correctamente, com o papel em
+  `app_metadata`.)
+
+## Actualização — validação em BD real e correcções (migrações 017 e 018)
+
+- **[CORRIGIDO] Lista de utilizadores mostrava contas de formador como staff**
+  (018): `listar_utilizadores_staff()` devolvia todas as contas de `auth.users`,
+  incluindo as contas de formador criadas pela 016. No painel *Utilizadores* os
+  formadores apareciam com o papel mal interpretado ("Secretaria") e o *select*
+  de papel estava activo para essas linhas — um admin podia converter
+  acidentalmente uma conta de formador em secretaria/admin, dando-lhe acesso ao
+  painel da secretaria. A 018 filtra para `admin`/`secretaria`; os formadores
+  continuam visíveis em *Contas dos formadores* (`listar_formadores_contas`).
+  Corrigido com teste novo em `npm run test:db` (89 verificações).
+- **[CORRIGIDO] `nota_minima_aprovacao()` sem `search_path` fixo** (017): o
+  advisor de segurança (lint 0011 `function_search_path_mutable`) sinalizava a
+  função criada na 015; agora tem `set search_path = public`, como as funções
+  corrigidas na 014. O lint desapareceu do `get_advisors`.
+- **Validação contra a BD real (2026-10-15)**: 015/016 aplicadas e percorridas
+  com simulação de papéis (anon, conta sem papel, secretaria, admin e dois
+  formadores) — `anon` não lê `notas` nem executa as RPCs do portal; o formador
+  não lê `notas` nem `notas_historico` directamente (RLS/grants), só as suas
+  turmas pelas RPCs; e todas as recusas devolvem mensagem clara (pauta fechada,
+  prazo terminado, nota fora da escala, aluno de outra turma, pauta atribuída a
+  outro formador, secretaria a tentar criar conta de formador).
+
 ## Riscos residuais e recomendações
 
 1. **DevDeps com avisos HIGH** (toolchain apenas, não chega ao utilizador

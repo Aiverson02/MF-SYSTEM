@@ -108,15 +108,11 @@ export default function GuiaRapido() {
           <Passos
             itens={[
               <>
-                Abra {pagina('/admin/candidaturas', 'Candidaturas Online')}. As submissões do site aparecem
-                automaticamente (filtro "Do site").
+                Abra {pagina('/admin/candidaturas', 'Candidaturas Online')}. As submissões já recebidas pelo site
+                continuam aqui (filtro "Do site").
               </>,
               'Clique na linha para ver os documentos anexados pelo candidato.',
               'Valide os documentos e depois clique em Aprovar ou Rejeitar (a rejeição exige motivo).',
-              <>
-                Link do formulário público para partilhar: <span className="font-mono text-xs">/inscricao</span> —
-                também pode ser usado para consultar o estado de uma inscrição com o nº e o BI.
-              </>,
             ]}
           />
         </Cartao>

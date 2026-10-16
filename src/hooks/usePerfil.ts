@@ -4,7 +4,40 @@ import { supabase } from '../lib/supabase'
 export interface Perfil {
   email: string | null
   nome: string
-  papel: 'admin' | 'secretaria' | 'desconhecido'
+  papel: 'admin' | 'secretaria' | 'formador' | 'desconhecido'
+}
+
+/** Papéis que usam o painel da secretaria. */
+export const PAPEIS_STAFF = ['admin', 'secretaria'] as const
+
+/** Onde cada papel entra depois do login. */
+export function casaDoPapel(papel: Perfil['papel']): string {
+  return papel === 'formador' ? '/formador/pautas' : '/admin/dashboard'
+}
+
+/**
+ * Papel do utilizador autenticado.
+ *
+ * Lê primeiro o JWT (`app_metadata.papel`, imutável pelo cliente). Quando o JWT
+ * não traz papel nenhum — conta criada no painel Auth e depois ligada a um
+ * formador — pergunta à BD por `formador_actual()`, que é **exactamente** o
+ * critério que as RPCs do portal usam para autorizar (`formadores.user_id =
+ * auth.uid()`). Assim quem está ligado como formador entra no portal dele em
+ * vez de cair no painel da secretaria.
+ */
+export async function resolverPapel(): Promise<Perfil['papel']> {
+  const { data } = await supabase.auth.getUser()
+  const user = data.user
+  if (!user) return 'desconhecido'
+
+  const appMeta = (user.app_metadata ?? {}) as Record<string, unknown>
+  const userMeta = (user.user_metadata ?? {}) as Record<string, unknown>
+  const papel = String(appMeta.papel ?? userMeta.papel ?? '')
+  if (papel === 'admin' || papel === 'secretaria' || papel === 'formador') return papel
+
+  const { data: formadorId, error } = await supabase.rpc('formador_actual')
+  if (!error && formadorId) return 'formador'
+  return 'desconhecido'
 }
 
 /**
@@ -32,14 +65,13 @@ export function usePerfil() {
         setPerfil(null)
         return
       }
-      const appMeta = (data.user.app_metadata ?? {}) as Record<string, unknown>
       const userMeta = (data.user.user_metadata ?? {}) as Record<string, unknown>
-      const papelRaw = String(appMeta.papel ?? userMeta.papel ?? '')
+      const papel = await resolverPapel()
+      if (!active) return
       setPerfil({
         email: data.user.email ?? null,
         nome: String(userMeta.nome ?? userMeta.name ?? data.user.email ?? 'Utilizador'),
-        papel:
-          papelRaw === 'admin' || papelRaw === 'secretaria' ? (papelRaw as Perfil['papel']) : 'desconhecido',
+        papel,
       })
     }
 

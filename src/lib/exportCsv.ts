@@ -26,3 +26,41 @@ export function exportToCsv<T>(filename: string, columns: ExportColumn<T>[], row
   document.body.removeChild(link)
   URL.revokeObjectURL(url)
 }
+
+/** Base de nome de ficheiro sem acentos nem caracteres estranhos ao SO. */
+export function nomeFicheiro(base: string): string {
+  const limpo = base
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '')
+  return limpo || 'pauta'
+}
+
+/** Uma linha da pauta (turma + item) pronta para exportar. */
+export interface PautaLinha {
+  numero: string
+  nome: string
+  nota: string
+  data: string
+  observacoes: string
+}
+
+/**
+ * Exporta uma pauta (turma + item) para CSV com BOM UTF-8: nº, aluno, nota,
+ * data e observações. Usado pelo formador (portal) e pela secretaria (Pautas).
+ */
+export function exportPautaCsv(titulo: string, linhas: PautaLinha[]) {
+  exportToCsv<PautaLinha>(
+    nomeFicheiro(titulo),
+    [
+      { header: 'Nº', value: (l) => l.numero },
+      { header: 'Aluno', value: (l) => l.nome },
+      { header: 'Nota', value: (l) => l.nota },
+      { header: 'Data', value: (l) => l.data },
+      { header: 'Observações', value: (l) => l.observacoes },
+    ],
+    linhas,
+  )
+}

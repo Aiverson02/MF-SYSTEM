@@ -36,16 +36,55 @@ npm run build  # tsc -b && vite build → dist/
 ## Banco de dados (Supabase)
 
 As migrations estão em `supabase/migrations/` e devem ser aplicadas **por ordem**
-(`001` … `013`). No editor SQL do Supabase, execute cada ficheiro pela ordem dos
-números. A migration `013` é a que define a segurança admin/finanças:
+(`001` … `018`). No editor SQL do Supabase, execute cada ficheiro pela ordem dos
+números. As migrations que definem a segurança e o modelo de papéis:
 
-- `public.eh_admin()` / `public.eh_staff()` — papéis via `user_metadata.papel`
-- Tabela privada `financas_seguranca` (hash bcrypt do código de finanças)
-- RPCs `definir_codigo_financas`, `verificar_codigo_financas`, `codigo_financas_definido`
-- RLS admin-only em escrita de `config_instituicao` e `config_pagamentos`
+- `013` — segurança admin/finanças: `public.eh_admin()` / `public.eh_staff()`,
+  tabela privada `financas_seguranca` (hash bcrypt do código de finanças),
+  RPCs `definir_codigo_financas`, `verificar_codigo_financas`,
+  `codigo_financas_definido`, RLS admin-only em escrita de `config_instituicao`
+  e `config_pagamentos`.
+- `014` — hardening: o papel passa a viver **apenas em `app_metadata`**
+  (imutável pelo próprio utilizador), grants mínimos para `anon`, lockout do
+  código de finanças, limites de input nas RPCs públicas.
+- `015` — avaliações e notas: catálogo de itens por curso (`avaliacoes`), notas
+  por aluno/item (`notas`), vista `notas_resumo_aluno` com a nota final.
+- `016` — portal dos formadores: atribuição de formadores por turma, pautas
+  (aberta/fechada), histórico de alterações às notas e RPCs do portal.
+- `017` — higiene: `nota_minima_aprovacao()` passa a ter `search_path` fixo
+  (o advisor de segurança do Supabase deixou de sinalizar a função).
+- `018` — `listar_utilizadores_staff` devolve **só** contas staff: as contas de
+  formador deixaram de aparecer no painel Utilizadores com papel editável.
 
-Crie os utilizadores em **Authentication → Users** e defina
-`user_metadata = { "papel": "admin" }` ou `{ "papel": "secretaria" }`.
+### Papéis e contas
+
+Os papéis são `admin`, `secretaria` e `formador`, e vivem em
+**`app_metadata.papel`** — **nunca** em `user_metadata`, que qualquer conta pode
+alterar sozinha (`supabase.auth.updateUser`) e serviria para escalar
+privilégios. A UI lê `user_metadata.papel` apenas como fallback de transição;
+nenhuma permissão do servidor o considera.
+
+Criar contas de secretaria/admin pelo painel **Utilizadores** (RPC
+`criar_utilizador_staff`, só admin) — é o caminho que grava o papel no sítio
+certo. Contas de formador são criadas na aba **Formadores** (Cursos & Turmas)
+ou pela RPC `criar_conta_formador`, que além do papel liga a conta ao registo do
+formador (`formadores.user_id`).
+
+Se criaste contas à mão em **Authentication → Users**, confirma que o papel está
+em `app_metadata` e não em `user_metadata`: contas com o papel no sítio errado
+aparecem como "Administrador" na interface mas o servidor recusa tudo.
+
+## Verificação automática das migrations
+
+Os testes de base de dados correm num Postgres real embutido (WASM) sem
+precisar de Docker nem de internet:
+
+```bash
+npm run test:db   # aplica as migrations e verifica as regras de negócio
+```
+
+Cobrem a fórmula da nota final, as validações de escala e a autorização dos
+formadores (isolamento entre formadores, pauta fechada, item de outro curso).
 
 ## Deploy
 
@@ -78,16 +117,41 @@ que não está configurado.
 
 - Adicionar o URL de produção à lista de **Redirect URLs** do Supabase
   (Authentication → URL Configuration), se usar ligações por email.
-- O `start_url` do PWA é `/admin/dashboard`; o service worker atualiza
-  automaticamente (`autoUpdate`).
+- O `start_url` do PWA é `/`, que encaminha por papel (painel da secretaria ou
+  portal do formador); o service worker atualiza automaticamente (`autoUpdate`).
 
 ## Segurança (resumo)
 
 - Código de finanças validado **no servidor** (hash bcrypt); nunca vai ao cliente.
+- Papéis em `app_metadata` (imutável pelo utilizador): `admin`, `secretaria`,
+  `formador`. `eh_staff()` é falso para formadores.
+- Formadores não têm acesso directo a tabelas: o portal fala apenas por RPCs
+  `security definer` que devolvem o mínimo (nº de estudante e nome) e validam,
+  no servidor, formador ↔ turma, pauta aberta e escala da nota.
+- Alterações a notas ficam registadas em `notas_historico` (quem, quando, valor
+  anterior → novo); pauta fechada recusa escrita.
 - Desbloqueio de Pagamentos preendido à conta (sessionStorage por UID) e limpo
   em logout / troca de conta / sessão expirada.
 - Escrita em configurações e preços: apenas `admin` (RLS).
 - `.env` e `.freebuff/` estão no `.gitignore`; nunca commitar credenciais.
+
+## Portal dos formadores
+
+Cada formador tem a sua conta e entra no portal (não no painel da secretaria):
+
+1. Em **Cursos & Turmas → Formadores**, criar o formador.
+2. Em **Pautas**, escolher a turma e **atribuir o formador à turma** (um curso
+   pode ter formadores diferentes por turno, e uma turma pode ter mais de um).
+3. Em **Utilizadores → Contas dos formadores**, criar a conta (email pessoal +
+   password entregue em mão) ou ligar uma conta já existente.
+4. Ainda em **Pautas**, abrir a pauta de cada item (avaliação, exame ou recurso)
+   que o formador deve preencher — com prazo e/ou atribuída a um formador
+   específico, se for o caso.
+
+O formador entra, vê apenas as suas turmas e lança as notas enquanto a pauta
+estiver aberta. Quando a secretaria **fecha** a pauta, o formador deixa de poder
+alterar (a secretaria continua a poder corrigir, e toda a alteração fica em
+`notas_historico`). O portal não mostra BI, contactos, documentos nem finanças.
 
 ## Instalar como aplicativo no Windows (PWA)
 

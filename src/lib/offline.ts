@@ -30,8 +30,16 @@ const MAX_FILA = 300
 /** RPCs de consulta (sem efeitos secundários) — podem ser servidas do cache. */
 const RPC_LEITURA = new Set([
   'listar_utilizadores_staff',
+  'listar_formadores_contas',
   'localizar_inscricao_para_docs',
   'consultar_inscricao_publica',
+  // Portal dos formadores / notas (leituras puras: sem elas a página offline
+  // mostraria “alteração guardada” para algo que nem é uma alteração).
+  'formador_actual',
+  'pautas_do_formador',
+  'pauta_da_turma',
+  'resumo_turma',
+  'historico_notas_aluno',
 ])
 
 /** RPCs que não devem entrar na fila (verificação de segurança, sem efeito). */

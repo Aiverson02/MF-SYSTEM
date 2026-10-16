@@ -25,6 +25,12 @@ jobs:
       - name: Auditoria de vulnerabilidades npm (produção)
         run: npm audit --omit=dev --audit-level=high
 
+      # Migrações (015…018) contra um Postgres real embutido: fórmula da nota
+      # final, exame de recurso, autorização por formador/turma, pautas e
+      # histórico. Sem serviço externo nem credenciais.
+      - name: Testes de base de dados (migrações)
+        run: npm run test:db
+
       # O build do Vite não lança sem as variáveis (o código faz fallback com
       # aviso), mas definimos valores placeholder para o bundle ser determinístico.
       - name: Typecheck + build

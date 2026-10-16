@@ -244,3 +244,173 @@ export function mesLabel(mesReferencia: string): string {
   ]
   return `${meses[(m ?? 1) - 1]} ${y}`
 }
+
+// ---------------------------------------------------------------------------
+// Avaliações e notas (migração 015)
+// ---------------------------------------------------------------------------
+
+export type TipoAvaliacao = 'avaliacao' | 'exame' | 'recurso'
+
+/** Item de avaliação definido POR CURSO (ex.: "Avaliação 1", "Exame Final"). */
+export interface Avaliacao {
+  id: string
+  curso_id: string
+  nome: string
+  tipo: TipoAvaliacao
+  /** Peso na nota final (Σ nota×peso / Σ peso). */
+  peso: number
+  /** Escala da nota (0–20 por omissão). */
+  nota_maxima: number
+  ordem: number
+  ativo: boolean
+  created_at: string
+  updated_at: string
+}
+
+/** Nota de um aluno num item de avaliação (1 linha por par aluno/item). */
+export interface Nota {
+  id: string
+  aluno_id: string
+  avaliacao_id: string
+  nota: number | null
+  data_avaliacao: string | null
+  /** Formador que leccionou o item — usado pelo portal dos formadores. */
+  formador_id: string | null
+  observacoes: string | null
+  /** Conta que registou a nota (preenchido no servidor). */
+  lancado_por: string | null
+  lancado_em: string
+  created_at: string
+  updated_at: string
+}
+
+/** Linha da vista `notas_resumo_aluno` — a fórmula vive no servidor. */
+export interface NotasResumo {
+  aluno_id: string
+  itens_lancados: number
+  itens_total: number
+  media_avaliacoes: number | null
+  /** Nota do exame já com o recurso aplicado, quando for melhor. */
+  nota_exame: number | null
+  nota_final: number | null
+  avaliacao_completa: boolean
+  aprovado: boolean
+  /** Nota crua do exame de recurso (null quando não houve recurso). */
+  nota_recurso: number | null
+}
+
+// ---------------------------------------------------------------------------
+// Portal dos formadores (migração 016)
+// ---------------------------------------------------------------------------
+
+export type EstadoPauta = 'aberta' | 'fechada'
+
+/** Pauta = (turma, item). Só o que a secretaria abre pode ser preenchido. */
+export interface Pauta {
+  id: string
+  turma_id: string
+  avaliacao_id: string
+  /** null = qualquer formador atribuído à turma; preenchido = só aquele. */
+  formador_id: string | null
+  estado: EstadoPauta
+  prazo: string | null
+  aberta_em: string
+  aberta_por: string | null
+  fechada_em: string | null
+  fechada_por: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** Linha de `pautas_do_formador()` — o que o formador tem para preencher. */
+export interface PautaFormador {
+  pauta_id: string
+  turma_id: string
+  turma: string
+  curso: string
+  turno: Turno
+  ano_lectivo: number
+  avaliacao_id: string
+  item: string
+  tipo: TipoAvaliacao
+  peso: number
+  nota_maxima: number
+  estado: EstadoPauta
+  prazo: string | null
+  pode_editar: boolean
+  notas_lancadas: number
+  total_alunos: number
+}
+
+/** Linha de `pauta_da_turma()` — o mínimo que o formador vê do aluno. */
+export interface PautaAluno {
+  aluno_id: string
+  numero_estudante: string
+  nome_completo: string | null
+  nota: number | null
+  data_avaliacao: string | null
+  observacoes: string | null
+}
+
+/** Linha de `resumo_turma()` — nota final por aluno. */
+export interface ResumoTurma {
+  aluno_id: string
+  numero_estudante: string
+  nome_completo: string | null
+  media_avaliacoes: number | null
+  nota_exame: number | null
+  nota_recurso: number | null
+  nota_final: number | null
+  avaliacao_completa: boolean
+  aprovado: boolean
+}
+
+/** Linha de `listar_formadores_contas()`. */
+export interface FormadorConta {
+  formador_id: string
+  nome: string
+  ativo: boolean
+  user_id: string | null
+  email: string | null
+  ultimo_login: string | null
+}
+
+/** Linha de `historico_notas_aluno()`. */
+export interface HistoricoNota {
+  quando: string
+  accao: 'insert' | 'update' | 'delete'
+  item: string
+  nota_anterior: number | null
+  nota_nova: number | null
+  autor: string
+  formador: string
+}
+
+export const ESTADO_PAUTA_LABELS: Record<EstadoPauta, string> = {
+  aberta: 'Aberta',
+  fechada: 'Fechada',
+}
+
+export const ACCAO_NOTA_LABELS: Record<HistoricoNota['accao'], string> = {
+  insert: 'Lançada',
+  update: 'Alterada',
+  delete: 'Apagada',
+}
+
+export const TIPO_AVALIACAO_LABELS: Record<TipoAvaliacao, string> = {
+  avaliacao: 'Avaliação',
+  exame: 'Exame',
+  recurso: 'Recurso',
+}
+
+/**
+ * Formata uma nota na escala PT/MZ: 15.5 → "15,50"; vazio → "—".
+ *
+ * Aceita também texto: o PostgREST pode devolver `numeric` como string
+ * (precisão), e a UI não deve rebentar por causa disso.
+ */
+export function notaLabel(valor: number | string | null | undefined): string {
+  if (valor === null || valor === undefined || valor === '') return '—'
+  const n = typeof valor === 'number' ? valor : Number(valor)
+  return Number.isFinite(n) ? n.toFixed(2).replace('.', ',') : '—'
+}

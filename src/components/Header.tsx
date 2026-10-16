@@ -10,6 +10,7 @@ const SECTION_TITLES: Record<string, string> = {
   '/admin/inscricoes': 'Inscrições',
   '/admin/cursos': 'Cursos & Turmas',
   '/admin/alunos': 'Alunos & Turmas',
+  '/admin/pautas': 'Pautas & formadores',
 }
 
 export default function Header({ onMenuClick }: { onMenuClick: () => void }) {

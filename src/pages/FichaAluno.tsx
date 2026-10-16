@@ -4,6 +4,8 @@ import { supabase } from '../lib/supabase'
 import type { AlunoMatriculado, DocumentoInscricao, Turma } from '../types/database'
 import { ESTADO_ALUNO_LABELS, TURNO_LABELS } from '../types/database'
 import { Badge, ErrorMessage, LoadingBlock, Spinner } from '../components/ui'
+import NotasAvaliacoes from '../components/NotasAvaliacoes'
+import HistoricoNotas from '../components/HistoricoNotas'
 import { format } from '../lib/format'
 import { showSuccess, confirmarAcao } from '../lib/alerts'
 
@@ -281,6 +283,12 @@ export default function FichaAluno() {
           </div>
         </div>
       </div>
+
+      {/* Notas das avaliações e do exame (catálogo definido por curso) */}
+      <NotasAvaliacoes alunoId={aluno.id} cursoId={turma?.curso_id ?? insc?.curso_id ?? null} />
+
+      {/* Rasto de quem alterou cada nota (RPC staff-only) */}
+      <HistoricoNotas alunoId={aluno.id} />
 
       {/* Documentos */}
       <div className="cell mt-3">

@@ -1,9 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import type { AlunoMatriculado, Inscricao, Turma } from '../types/database'
-import { ESTADO_ALUNO_LABELS, TURNO_LABELS } from '../types/database'
+import type { AlunoMatriculado, Inscricao, NotasResumo, Turma } from '../types/database'
+import { ESTADO_ALUNO_LABELS, TURNO_LABELS, notaLabel } from '../types/database'
 import { useAsyncData } from '../hooks/useAsyncData'
 import { Badge, EmptyState, ErrorMessage, LoadingBlock, PageHeader, Spinner } from '../components/ui'
 import { format } from '../lib/format'
@@ -89,6 +89,31 @@ function AlocarTurmaModal({
   )
 }
 
+// --- Nota final (vista notas_resumo_aluno, migração 015) -----------------------
+
+/** Situação da avaliação em texto, para a tabela e o CSV. */
+function situacaoAvaliacao(resumo: NotasResumo | undefined): string {
+  if (!resumo || resumo.itens_total === 0) return ''
+  if (!resumo.avaliacao_completa) return `Em curso (${resumo.itens_lancados}/${resumo.itens_total})`
+  return resumo.aprovado ? 'Aprovado' : 'Reprovado'
+}
+
+function NotaFinal({ resumo }: { resumo?: NotasResumo }) {
+  if (!resumo || resumo.itens_total === 0) return <span className="text-ink-faint">—</span>
+  return (
+    <span className="flex items-center gap-2">
+      <span className="tnum font-medium text-ink">{notaLabel(resumo.nota_final)}</span>
+      {resumo.avaliacao_completa ? (
+        <span className="text-xs text-ink-faint">{resumo.aprovado ? 'Aprovado' : 'Reprovado'}</span>
+      ) : (
+        <span className="tnum text-xs text-ink-faint">
+          {resumo.itens_lancados}/{resumo.itens_total}
+        </span>
+      )}
+    </span>
+  )
+}
+
 // --- Página principal ----------------------------------------------------------
 
 const FILTROS_ESTADO_ALUNO = ['todos', 'ativo', 'concluido'] as const
@@ -99,6 +124,17 @@ export default function Alunos() {
   const [estadoFiltro, setEstadoFiltro] = useState<(typeof FILTROS_ESTADO_ALUNO)[number]>('todos')
   const [alocando, setAlocando] = useState<Inscricao | null>(null)
   const [exportando, setExportando] = useState(false)
+  const [resumos, setResumos] = useState<Record<string, NotasResumo>>({})
+
+  /** Nota final por aluno, da vista `notas_resumo_aluno` (a fórmula é do servidor). */
+  const carregarResumos = useCallback(async (ids: string[]) => {
+    const mapa: Record<string, NotasResumo> = {}
+    if (ids.length === 0) return mapa
+
+    const { data } = await supabase.from('notas_resumo_aluno').select('*').in('aluno_id', ids)
+    for (const r of (data as NotasResumo[] | null) ?? []) mapa[r.aluno_id] = r
+    return mapa
+  }, [])
 
   const turmasFetcher = useCallback(
     async () =>
@@ -152,6 +188,19 @@ export default function Alunos() {
 
   const { data: aprovadosSemTurma } = useAsyncData<Inscricao[]>(aprovadosSemTurmaFetcher, [])
 
+  // Nota final da lista visível (uma consulta, sem N+1 na renderização)
+  useEffect(() => {
+    const ids = (alunos ?? []).map((a) => a.id)
+    let activo = true
+    void (async () => {
+      const mapa = await carregarResumos(ids)
+      if (activo) setResumos(mapa)
+    })()
+    return () => {
+      activo = false
+    }
+  }, [alunos, carregarResumos])
+
   const cursoNome = useCallback(
     (cursoId: string) => {
       const t = (turmas ?? []).find((x) => x.curso_id === cursoId)
@@ -185,6 +234,8 @@ export default function Alunos() {
       return
     }
 
+    const resumosExportacao = await carregarResumos(todos.map((a) => a.id))
+
     exportToCsv(
       'lista_alunos',
       [
@@ -197,6 +248,8 @@ export default function Alunos() {
         { header: 'Ano Lectivo', value: (a) => String(a.turmas?.ano_lectivo ?? '') },
         { header: 'Data Matricula', value: (a) => format.date(a.data_matricula) },
         { header: 'Estado', value: (a) => ESTADO_ALUNO_LABELS[a.estado_aluno] },
+        { header: 'Nota Final', value: (a) => notaLabel(resumosExportacao[a.id]?.nota_final) },
+        { header: 'Situacao Avaliacao', value: (a) => situacaoAvaliacao(resumosExportacao[a.id]) },
       ],
       todos as AlunoMatriculado[],
     )
@@ -293,6 +346,7 @@ export default function Alunos() {
                   <th className="px-4 py-2.5 font-medium">Curso</th>
                   <th className="px-4 py-2.5 font-medium">Turma</th>
                   <th className="px-4 py-2.5 font-medium">Matrícula</th>
+                  <th className="px-4 py-2.5 font-medium">Nota final</th>
                   <th className="px-4 py-2.5 font-medium">Estado</th>
                 </tr>
               </thead>
@@ -313,6 +367,9 @@ export default function Alunos() {
                       {a.turmas ? `${a.turmas.nome_turma} (${TURNO_LABELS[a.turmas.turno]})` : ''}
                     </td>
                     <td className="px-4 py-2.5 text-ink-muted">{format.date(a.data_matricula)}</td>
+                    <td className="px-4 py-2.5">
+                      <NotaFinal resumo={resumos[a.id]} />
+                    </td>
                     <td className="px-4 py-2.5">
                       <Badge
                         variant={

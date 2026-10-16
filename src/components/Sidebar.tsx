@@ -88,6 +88,19 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    to: '/admin/pautas',
+    label: 'Pautas',
+    icon: (
+      <svg className={iconClass} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8">
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M9 5h6m-6 0a2 2 0 00-2 2v12a2 2 0 002 2h6a2 2 0 002-2V7a2 2 0 00-2-2m-6 0V4a1 1 0 011-1h4a1 1 0 011 1v1m-1 6l-2 2-1-1"
+        />
+      </svg>
+    ),
+  },
+  {
     to: '/admin/pos-conclusao',
     label: 'Pós-Conclusão',
     icon: (

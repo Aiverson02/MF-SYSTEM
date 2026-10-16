@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { Spinner } from '../components/ui'
 import { useInstituicao } from '../hooks/useInstituicao'
+import { casaDoPapel, resolverPapel } from '../hooks/usePerfil'
 
 const MSG_OFFLINE =
   'Sem ligação à internet. O acesso offline só está disponível para sessões já iniciadas neste computador — ' +
@@ -35,8 +36,11 @@ export default function Login() {
         setLoading(false)
         return
       }
-      // Sessão persistida: navegar explicitamente para o painel.
-      navigate('/admin/dashboard', { replace: true })
+
+      // Sessão persistida: cada papel entra na sua casa (formador → portal).
+      // O papel vem do JWT e, na falta dele, da ligação formador ↔ conta (BD).
+      const papel = await resolverPapel()
+      navigate(casaDoPapel(papel), { replace: true })
     } catch {
       setError(MSG_OFFLINE)
       setLoading(false)
@@ -51,7 +55,7 @@ export default function Login() {
             CF
           </div>
           <h1 className="font-serif text-xl font-semibold text-ink">{instituicao.nome}</h1>
-          <p className="text-sm text-ink-muted">Painel da Secretaria, acesso restrito</p>
+          <p className="text-sm text-ink-muted">Acesso restrito — secretaria e formadores</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
