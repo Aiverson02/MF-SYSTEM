@@ -1,0 +1,52 @@
+name: Backup-do-Projeto-SIGA
+
+# Executa uma vez por mês automaticamente
+on:
+  schedule:
+    - cron: '0 2 1 * *'
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Clonar repo
+        uses: actions/checkout@v4
+
+      - name: Instalar node + dependências
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Build
+        run: npm ci && npm run build
+
+      - name: Preparar pacote autocontido
+        run: |
+          mkdir -p package-final/dist
+          cp -r dist package-final/
+          cp index.html package-final/
+          cp public/_headers package-final/ 2>/dev/null || true
+          cp public/_redirects package-final/ 2>/dev/null || true
+          cp vite.config.ts package-final/ 2>/dev/null || true
+          cp tsconfig.json package-final/ 2>/dev/null || true
+          cp package.json package-final/
+          cp package-lock.json package-final/ 2>/dev/null || true
+
+      - name: Determina versionamento do backup
+        run: |
+          echo "DATA=$(date +%Y-%m)" >> $GITHUB_ENV
+          echo "SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Publicar release como backup
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: backup-${{ env.DATA }}-${{ env.SHA }}
+          name: Backup mês ${{ env.DATA }} (${{ env.SHA }})
+          draft: false
+          generate_release_notes: true
+          files: |
+            package-final/**
