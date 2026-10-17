@@ -1,0 +1,10 @@
+{
+  "name": "mf-siga",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-17",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  }
+}
