@@ -8,6 +8,7 @@ import { useAsyncData } from '../hooks/useAsyncData'
 import { Badge, EmptyState, ErrorMessage, LoadingBlock, PageHeader, Spinner } from '../components/ui'
 import { format } from '../lib/format'
 import { exportToCsv } from '../lib/exportCsv'
+import { confirmarAcao, showError, showSuccess } from '../lib/alerts'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { matricularEmTurma } from '../lib/inscricoesService'
 
@@ -218,6 +219,26 @@ export default function Alunos() {
     }
   }, [alunos])
 
+  /** Apaga a matrícula: liberta a vaga e remove notas/pagamentos (cascata). */
+  const apagarAluno = async (a: AlunoMatriculado) => {
+    const nome = a.inscricoes?.nome_completo ?? a.numero_estudante
+    const ok = await confirmarAcao({
+      title: 'Apagar aluno',
+      message: `Apagar "${nome}" (${a.numero_estudante})?\n\nA matrícula é removida, a vaga na turma fica livre e os registos de notas, pagamentos e pós-conclusão associados são apagados. A inscrição original continua aprovada, sem matrícula. Esta acção não pode ser desfeita.`,
+      confirmLabel: 'Apagar',
+      danger: true,
+    })
+    if (!ok) return
+
+    const { error } = await supabase.from('alunos_matriculados').delete().eq('id', a.id)
+    if (error) {
+      showError(error.message)
+      return
+    }
+    showSuccess('Aluno apagado. A vaga da turma ficou livre.')
+    void reload()
+  }
+
   const exportarCsv = async () => {
     setExportando(true)
     // Rebuscar dados completos (sem limite de página) para exportação
@@ -348,6 +369,7 @@ export default function Alunos() {
                   <th className="px-4 py-2.5 font-medium">Matrícula</th>
                   <th className="px-4 py-2.5 font-medium">Nota final</th>
                   <th className="px-4 py-2.5 font-medium">Estado</th>
+                  <th className="px-4 py-2.5 text-right font-medium">Acções</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -378,6 +400,14 @@ export default function Alunos() {
                       >
                         {ESTADO_ALUNO_LABELS[a.estado_aluno]}
                       </Badge>
+                    </td>
+                    <td className="px-4 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => void apagarAluno(a)}
+                        className="btn-danger px-2.5 py-1 text-xs"
+                      >
+                        Apagar
+                      </button>
                     </td>
                   </tr>
                 ))}

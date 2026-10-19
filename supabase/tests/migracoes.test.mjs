@@ -2,8 +2,8 @@
  * Testes das migrações 015 (avaliações e notas), 016 (portal dos formadores),
  * 017 (search_path de `nota_minima_aprovacao`), 018 (lista staff sem contas
  * de formador), 019 (endurecimento da revisão de segurança), 020 (origem da
- * inscrição decidida pela sessão) e 021 (data do pagamento do certificado e da
- * faixa).
+ * inscrição decidida pela sessão), 021 (data do pagamento do certificado e da
+ * faixa) e 022 (semente do catálogo de cursos).
  *
  * Correm num Postgres real embutido — sem Docker, sem internet e sem tocar no
  * projecto Supabase de produção:
@@ -29,6 +29,7 @@ const FICHEIROS = [
   '019_endurecimento_revisao_seguranca.sql',
   '020_origem_inscricao_por_sessao.sql',
   '021_pos_conclusao_data_pagamento.sql',
+  '022_seed_cursos_catalogo.sql',
 ]
 
 // ---------------------------------------------------------------- ferramentas
@@ -539,6 +540,18 @@ verificar('021: função do trigger tem search_path fixo',
       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.proname = 'registar_pagamento_pos_conclusao'
   `)).rows[0]?.o ?? ''))
+
+// ===========================================================================
+grupo('022 — semente do catálogo de cursos')
+
+const CODIGOS_NOVOS = ['ATC-CC','BEL-EST','CON-G','CUL-DSB','EDU-INF','ELET-INS','GRH','MEST-CER','ING','JORNAL','SEC-EX','NOC-RP','DES-VE','IMP-EXP']
+const contarSeed = async () => (await db.query(
+  `select count(*)::int as n from public.cursos where codigo = any($1)`,
+  [`{${CODIGOS_NOVOS.join(',')}}`],
+)).rows[0].n
+verificar('022: os 14 cursos pedidos foram inseridos', (await contarSeed()) === 14, String(await contarSeed()))
+await db.exec(fs.readFileSync(path.join(MIGRACOES, '022_seed_cursos_catalogo.sql'), 'utf8'))
+verificar('022: re-executar a semente não duplica cursos', (await contarSeed()) === 14, String(await contarSeed()))
 
 // ===========================================================================
 console.log(falhas === 0 ? `\n${total} verificações passaram.` : `\n${falhas} de ${total} verificações FALHARAM.`)

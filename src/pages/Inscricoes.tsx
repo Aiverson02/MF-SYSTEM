@@ -6,6 +6,7 @@ import { ESTADO_LABELS } from '../types/database'
 import { useAsyncData } from '../hooks/useAsyncData'
 import { Badge, EmptyState, ErrorMessage, LoadingBlock, PageHeader } from '../components/ui'
 import { format } from '../lib/format'
+import { confirmarAcao, showError, showSuccess } from '../lib/alerts'
 import ValidacaoInscricao from '../components/ValidacaoInscricao'
 import NovaInscricaoModal from '../components/NovaInscricaoModal'
 
@@ -134,6 +135,38 @@ export default function Inscricoes() {
     setSearchParams({ validar: id })
   }
 
+  /** Elimina a inscrição (cascata: documentos, aluno matriculado, notas e pagamentos). */
+  const eliminarInscricao = async (i: Inscricao) => {
+    const ok = await confirmarAcao({
+      title: 'Eliminar inscrição',
+      message: `Eliminar a inscrição ${i.numero_inscricao} de "${i.nome_completo}"?\n\nApaga os documentos anexados e, se o candidato já estiver matriculado, também o aluno associado (com notas e pagamentos). Esta acção não pode ser desfeita.`,
+      confirmLabel: 'Eliminar',
+      danger: true,
+    })
+    if (!ok) return
+
+    const { error } = await supabase.from('inscricoes').delete().eq('id', i.id)
+    if (error) {
+      showError(error.message)
+      return
+    }
+
+    // Depois da BD: limpar os ficheiros do bucket privado (melhor esforço).
+    const { data: ficheiros } = await supabase.storage.from('documentos-inscricao').list(i.id)
+    if (ficheiros && ficheiros.length > 0) {
+      const { error: errStore } = await supabase.storage
+        .from('documentos-inscricao')
+        .remove(ficheiros.map((f) => `${i.id}/${f.name}`))
+      if (errStore) {
+        showError(`Inscrição eliminada, mas nem todos os ficheiros puderam ser removidos: ${errStore.message}`)
+      }
+    }
+
+    showSuccess('Inscrição eliminada.')
+    if (validarId === i.id) fecharValidacao()
+    void reload()
+  }
+
   const fecharValidacao = () => {
     setSearchParams({}, { replace: true })
   }
@@ -249,9 +282,17 @@ export default function Inscricoes() {
                         <Badge variant={i.estado}>{ESTADO_LABELS[i.estado]}</Badge>
                       </td>
                       <td className="px-4 py-2.5 text-right">
-                        <button onClick={() => abrirValidacao(i.id)} className="btn-secondary px-2.5 py-1 text-xs">
-                          Validar
-                        </button>
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => abrirValidacao(i.id)} className="btn-secondary px-2.5 py-1 text-xs">
+                            Validar
+                          </button>
+                          <button
+                            onClick={() => void eliminarInscricao(i)}
+                            className="btn-danger px-2.5 py-1 text-xs"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
