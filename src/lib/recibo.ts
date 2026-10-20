@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { Pagamento, PosConclusao } from '../types/database'
+import type { CobrancaAluno, Pagamento, PosConclusao } from '../types/database'
 import { ITEM_POS_LABELS, METODO_LABELS, mesLabel } from '../types/database'
 import { NOME_INSTITUICAO_DEFAULT } from '../hooks/useInstituicao'
 
@@ -295,6 +295,35 @@ export async function imprimirReciboPos(i: PosConclusao, nomeInst?: string) {
       linhas,
       valor: Number(i.valor),
       observacoes: null,
+    },
+    nomeInst,
+  )
+}
+
+/** Recibo de uma cobrança avulsa (testes, material, exame — catálogo 026). */
+export async function imprimirReciboCobranca(c: CobrancaAluno, nomeInst?: string) {
+  const a = c.alunos_matriculados
+  const pago = c.estado === 'pago'
+
+  const linhas: [string, string][] = [['Cobrança', c.cobrancas?.nome ?? '—']]
+  if (c.cobrancas?.descricao) linhas.push(['Descrição', c.cobrancas.descricao])
+  if (pago && c.data_pagamento) linhas.push(['Data do pagamento', c.data_pagamento])
+  if (pago && c.metodo) linhas.push(['Método', METODO_LABELS[c.metodo]])
+  if (pago && c.referencia) linhas.push(['Nº de recibo / transação', c.referencia])
+  linhas.push(['Estado', pago ? 'Pago' : c.estado === 'isento' ? 'Isento' : 'Pendente'])
+
+  await emitirRecibo(
+    {
+      numero: numeroReciboDe(c.id, c.data_pagamento ?? c.created_at),
+      subtitulo: 'Recibo de cobrança',
+      nomeAluno: a?.inscricoes?.nome_completo ?? '—',
+      numeroEstudante: a?.numero_estudante ?? '—',
+      turma: a?.turmas?.nome_turma ?? '',
+      estadoTopo: pago ? 'Pago' : 'Não pago',
+      pago,
+      linhas,
+      valor: Number(c.valor),
+      observacoes: c.observacoes,
     },
     nomeInst,
   )

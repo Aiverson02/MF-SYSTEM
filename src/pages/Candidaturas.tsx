@@ -46,7 +46,7 @@ export default function Candidaturas() {
       base = base.filter(
         (i) =>
           i.nome_completo.toLowerCase().includes(q) ||
-          i.numero_bi.toLowerCase().includes(q) ||
+          (i.numero_bi ?? '').toLowerCase().includes(q) ||
           i.numero_inscricao.toLowerCase().includes(q),
       )
     }

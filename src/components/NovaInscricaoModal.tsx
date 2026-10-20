@@ -45,10 +45,23 @@ export default function NovaInscricaoModal({ onClose, onDone }: { onClose: () =>
           ) : (
             <InscricaoForm
               cursos={cursos ?? []}
-              onSucesso={(numero) => {
-                pushToast(`Inscrição ${numero} criada com sucesso.`, 'sucesso')
+              onSucesso={(numeros, falhas) => {
+                // Sempre a recarregar a lista; só fecha quando tudo passou —
+                // havendo recusa (ex.: limite de 3), o formulário mostra o
+                // detalhe curso a curso e o modal fica aberto para corrigir.
                 onDone()
-                onClose()
+                if (falhas.length === 0) {
+                  pushToast(
+                    `${numeros.length > 1 ? 'Inscrições criadas' : 'Inscrição'} ${numeros.join(', ')} com sucesso.`,
+                    'sucesso',
+                  )
+                  onClose()
+                } else {
+                  pushToast(
+                    `${numeros.length} de ${numeros.length + falhas.length} inscrições criadas (${numeros.join(', ')}). ${falhas.length} recusada(s) — veja o detalhe no formulário.`,
+                    'erro',
+                  )
+                }
               }}
             />
           )}

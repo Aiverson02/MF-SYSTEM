@@ -3,7 +3,10 @@
  * 017 (search_path de `nota_minima_aprovacao`), 018 (lista staff sem contas
  * de formador), 019 (endurecimento da revisão de segurança), 020 (origem da
  * inscrição decidida pela sessão), 021 (data do pagamento do certificado e da
- * faixa) e 022 (semente do catálogo de cursos).
+ * faixa), 022 (semente do catálogo de cursos), 023 (limite de 3 inscrições
+ * activas por aluno), 024 (inscrição sem BI e sem data de nascimento, com
+ * identidade por nome+celular), 025 (apagar utilizador, só admin) e 026
+ * (cobranças configuráveis: catálogo + aplicação a alunos).
  *
  * Correm num Postgres real embutido — sem Docker, sem internet e sem tocar no
  * projecto Supabase de produção:
@@ -30,6 +33,10 @@ const FICHEIROS = [
   '020_origem_inscricao_por_sessao.sql',
   '021_pos_conclusao_data_pagamento.sql',
   '022_seed_cursos_catalogo.sql',
+  '023_limite_3_inscricoes_por_aluno.sql',
+  '024_inscricao_sem_bi_e_data_nascimento.sql',
+  '025_apagar_utilizador.sql',
+  '026_cobrancas_configuraveis.sql',
 ]
 
 // ---------------------------------------------------------------- ferramentas
@@ -552,6 +559,272 @@ const contarSeed = async () => (await db.query(
 verificar('022: os 14 cursos pedidos foram inseridos', (await contarSeed()) === 14, String(await contarSeed()))
 await db.exec(fs.readFileSync(path.join(MIGRACOES, '022_seed_cursos_catalogo.sql'), 'utf8'))
 verificar('022: re-executar a semente não duplica cursos', (await contarSeed()) === 14, String(await contarSeed()))
+
+// ===========================================================================
+grupo('023 — limite de 3 inscrições activas por aluno (BI)')
+
+// Dois cursos extra com id fixo: as 14 linhas da 022 têm UUIDs gerados e não
+// servem para referenciar aqui.
+const cC = 'cccccccc-0000-0000-0000-000000000003'
+const cD = 'dddddddd-0000-0000-0000-000000000004'
+await db.exec(`
+  insert into public.cursos (id, nome, codigo) values
+    ('${cC}', 'Curso C', 'CC'), ('${cD}', 'Curso D', 'CD');
+`)
+
+/**
+ * Insert de teste: id e número únicos por chamada (TST-n não mexe na série INS).
+ * Nome e celular derivam do BI: desde a 024 a identidade é BI **ou**
+ * nome+celular, e linhas com o mesmo nome+celular seriam o mesmo "aluno".
+ */
+let tst = 0
+const novaInsc = (bi, curso, estado) => {
+  tst++
+  const id = `e3000000-0000-0000-0000-${String(tst).padStart(12, '0')}`
+  return `
+    insert into public.inscricoes (id, numero_inscricao, nome_completo, numero_bi, data_nascimento, telefone_whatsapp, curso_id, turno_pretendido, estado)
+    values ('${id}', 'TST-${tst}', 'Aluno ${bi}', '${bi}', '2004-01-01', '84000${bi}', '${curso}', 'manha'::public.turno, '${estado}')
+  `
+}
+
+// Três cursos distintos passam — todos os estados não-rejeitados contam.
+await como(staff, novaInsc('3301', cA, 'pendente'))
+await como(staff, novaInsc('3301', cB, 'aprovado'))
+await como(staff, novaInsc('3301', cC, 'em_analise'))
+verificar('023: um BI com 3 inscrições activas em cursos distintos é aceite',
+  (await db.query(`select count(*)::int as n from public.inscricoes where upper(numero_bi) = '3301'`)).rows[0].n === 3)
+
+await esperaErro(staff, novaInsc('3301', cD, 'pendente'), /Limite de inscrições atingido/,
+  '023: a 4ª inscrição activa do mesmo BI é recusada')
+
+// Duplicado do mesmo curso (outro BI, só 1 activa — o limite ainda não chegou)
+await como(staff, novaInsc('3302', cA, 'pendente'))
+await esperaErro(staff, novaInsc('3302', cA, 'pendente'), /Já existe uma inscrição activa/,
+  '023: repetir o mesmo curso com o mesmo BI é recusado')
+
+// Rejeitar liberta a vaga: volta a poder inscrever-se no mesmo curso...
+await como(staff, `update public.inscricoes set estado = 'rejeitado' where numero_bi = '3301' and curso_id = '${cA}'`)
+await como(staff, novaInsc('3301', cA, 'pendente'))
+await esperaErro(staff, novaInsc('3301', cD, 'pendente'), /Limite de inscrições atingido/,
+  '023: rejeitada liberta a vaga e o limite mantém-se em 3')
+
+// Caminho de actualização: a secretaria muda o BI de uma inscrição para um BI já cheio
+await esperaErro(staff,
+  `update public.inscricoes set numero_bi = '3301' where numero_inscricao = 'INS-2026-000004'`,
+  /Limite de inscrições atingido/,
+  '023: mudar um BI para outro já com 3 activas é recusado')
+
+// A RPC pública (anon) recusa com as mesmas mensagens, vinda do servidor
+await esperaErro(null,
+  `select * from public.submeter_inscricao_publica('Aluno Limite', '3301', '2004-08-08', 'M', null, '840000301', '${cD}', 'manha'::public.turno)`,
+  /Limite de inscrições atingido/,
+  '023: a RPC pública recusa a 4ª inscrição com a mensagem do limite')
+await esperaErro(null,
+  `select * from public.submeter_inscricao_publica('Aluno Dup', '3302', '2004-09-09', 'F', null, '840000302', '${cA}', 'manha'::public.turno)`,
+  /Já existe uma inscrição activa/,
+  '023: a RPC pública recusa o mesmo curso duas vezes')
+
+// Um BI novo continua a submeter normalmente — a regra antiga de "BI único" acabou
+const rNovo = await como(null, `
+  select * from public.submeter_inscricao_publica('Aluno Novo 023', '3303', '2004-10-10', 'F', null, '840000303', '${cD}', 'manha'::public.turno)
+`)
+verificar('023: um BI novo submete normalmente pela RPC pública',
+  !!rNovo[0]?.numero_inscricao && /^INS-2026-/.test(rNovo[0].numero_inscricao ?? ''),
+  JSON.stringify(rNovo[0]))
+
+// A função do trigger não é chamável pela API e tem search_path fixo (higiene das 014/015/021)
+verificar('023: função do trigger não é chamável pela API',
+  (await db.query(`select has_function_privilege('authenticated', 'public.validar_limite_inscricoes()', 'EXECUTE') as ok`)).rows[0].ok === false)
+verificar('023: função do trigger tem search_path fixo',
+  /search_path/.test((await db.query(`
+    select coalesce(array_to_string(proconfig, ','), '') as o
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = 'validar_limite_inscricoes'
+  `)).rows[0]?.o ?? ''))
+
+// ===========================================================================
+grupo('024 — inscrição sem BI e sem data de nascimento; identidade nome+celular')
+
+// A RPC aceita sem BI e sem data de nascimento (os campos saíram do formulário).
+const r024 = await como(null, `
+  select * from public.submeter_inscricao_publica('Aluno Sem Documentos', null, null, null, null, '841111001', '${cB}', 'tarde'::public.turno)
+`)
+verificar('024: submete sem BI e sem data de nascimento', !!r024[0]?.numero_inscricao, JSON.stringify(r024[0]))
+const linha024 = (await como(staff,
+  `select numero_bi, data_nascimento from public.inscricoes where id = '${r024[0]?.inscricao_id}'`))[0]
+verificar('024: BI e data de nascimento ficam vazios na BD',
+  linha024?.numero_bi === null && linha024?.data_nascimento === null, JSON.stringify(linha024))
+
+/** RPC pública sem BI e sem data de nascimento — identidade só nome+celular. */
+const semBi = (nome, tel, curso, bi = null) => `
+  select * from public.submeter_inscricao_publica('${nome}', ${bi ? `'${bi}'` : 'null'}, null, null, null, '${tel}', '${curso}', 'manha'::public.turno)
+`
+
+// Sem BI, o limite de 3 é contado por nome+celular.
+await como(null, semBi('Aluno Celular', '845555005', cA))
+await como(null, semBi('Aluno Celular', '845555005', cC))
+await como(null, semBi('Aluno Celular', '845555005', cD))
+verificar('024: 3 cursos sem BI passam pelo nome+celular',
+  (await db.query(`select count(*)::int as n from public.inscricoes where nome_completo = 'Aluno Celular'`)).rows[0].n === 3)
+
+await esperaErro(null, semBi('Aluno Celular', '845555005', cB),
+  /Limite de inscrições atingido/, '024: a 4ª inscrição sem BI é recusada por nome+celular')
+
+// Informar o BI depois não zera o contador: a identidade continua a casar
+// pelo nome+celular (não dá para contornar o limite só por omitir o BI).
+await esperaErro(null, semBi('Aluno Celular', '845555005', cB, '3399'),
+  /Limite de inscrições atingido/,
+  '024: submeter com BI depois (mesmo nome+celular) continua no mesmo contador')
+
+// Duplicado do mesmo curso também casa por nome+celular.
+await como(null, semBi('Aluno Duplicado', '846666006', cA))
+await esperaErro(null, semBi('Aluno Duplicado', '846666006', cA),
+  /Já existe uma inscrição activa/, '024: repetir o mesmo curso sem BI é recusado por nome+celular')
+
+// Higiene da função do trigger (substituída pela 024), como nas 021/023.
+verificar('024: função do trigger não é chamável pela API',
+  (await db.query(`select has_function_privilege('authenticated', 'public.validar_limite_inscricoes()', 'EXECUTE') as ok`)).rows[0].ok === false)
+verificar('024: função do trigger tem search_path fixo',
+  /search_path/.test((await db.query(`
+    select coalesce(array_to_string(proconfig, ','), '') as o
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = 'validar_limite_inscricoes'
+  `)).rows[0]?.o ?? ''))
+
+// ===========================================================================
+grupo('025 — apagar utilizador (só admin; nunca a si próprio; desliga formadores)')
+
+const uAlvoA = '08000000-0000-0000-0000-000000000008'
+const uForm025 = '07000000-0000-0000-0000-000000000007'
+const fNovo025 = 'f7000000-0000-0000-0000-000000000007'
+await db.exec(`
+  insert into auth.users (id, email, raw_app_meta_data, created_at, updated_at) values
+    ('${uAlvoA}', 'apagar-a@exemplo.mz', '{"papel":"secretaria"}'::jsonb, now(), now()),
+    ('${uForm025}', 'formador-apagar@exemplo.mz', '{"papel":"formador"}'::jsonb, now(), now());
+  insert into public.formadores (id, nome, user_id) values
+    ('${fNovo025}', 'Formador Apagar', '${uForm025}');
+`)
+
+await recusa(null, `select * from public.apagar_utilizador('${uAlvoA}')`, [],
+  /Apenas o administrador/, '025: anónimo não apaga contas')
+await recusa(staff, `select * from public.apagar_utilizador('${uAlvoA}')`, [],
+  /Apenas o administrador/, '025: secretaria não apaga contas')
+
+const apagou025 = (await como(admin, `select * from public.apagar_utilizador('${uAlvoA}')`))[0]
+verificar('025: admin apaga a conta',
+  apagou025?.sucesso === true && /eliminada/.test(apagou025?.mensagem ?? ''), JSON.stringify(apagou025))
+verificar('025: a linha de auth.users desapareceu',
+  (await db.query(`select count(*)::int as n from auth.users where id = '${uAlvoA}'`)).rows[0].n === 0)
+
+await recusa(admin, `select * from public.apagar_utilizador('${uAlvoA}')`, [],
+  /não encontrada/, '025: apagar conta inexistente dá mensagem clara')
+await recusa(admin, `select * from public.apagar_utilizador('${uAdmin}')`, [],
+  /própria conta/, '025: ninguém apaga a própria conta')
+
+const rForm025 = (await como(admin, `select * from public.apagar_utilizador('${uForm025}')`))[0]
+verificar('025: admin apaga a conta de um formador', rForm025?.sucesso === true, JSON.stringify(rForm025))
+const dep025 = (await db.query(`
+  select (select count(*)::int from public.formadores where id = '${fNovo025}') as registo,
+         (select user_id from public.formadores where id = '${fNovo025}') as uid
+`)).rows[0]
+verificar('025: o registo do formador fica e o user_id é limpo',
+  dep025.registo === 1 && dep025.uid === null, JSON.stringify(dep025))
+
+verificar('025: RPC executável por authenticated',
+  (await db.query(`select has_function_privilege('authenticated', 'public.apagar_utilizador(uuid)', 'EXECUTE') as ok`)).rows[0].ok === true)
+verificar('025: RPC não executável por anon',
+  (await db.query(`select has_function_privilege('anon', 'public.apagar_utilizador(uuid)', 'EXECUTE') as ok`)).rows[0].ok === false)
+verificar('025: RPC tem search_path fixo',
+  /search_path/.test((await db.query(`
+    select coalesce(array_to_string(proconfig, ','), '') as o
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = 'apagar_utilizador'
+  `)).rows[0]?.o ?? ''))
+
+// ===========================================================================
+grupo('026 — cobranças: catálogo, aplicação a alunos e estado')
+
+// Grants: o catálogo é staff-only (o RLS não corre no PGlite, os grants sim).
+verificar('026: authenticated escreve no catálogo',
+  (await db.query(`select has_table_privilege('authenticated', 'public.cobrancas', 'INSERT') as ok`)).rows[0].ok === true)
+verificar('026: anon não escreve no catálogo',
+  (await db.query(`select has_table_privilege('anon', 'public.cobrancas', 'INSERT') as ok`)).rows[0].ok === false)
+verificar('026: anon não escreve nas dívidas',
+  (await db.query(`select has_table_privilege('anon', 'public.cobrancas_alunos', 'INSERT') as ok`)).rows[0].ok === false)
+
+const cbTestes = 'cb000000-0000-0000-0000-000000000001'
+const cbExame = 'cb000000-0000-0000-0000-000000000002'
+await como(staff, `
+  insert into public.cobrancas (id, nome, descricao, valor) values
+    ('${cbTestes}', 'Testes (3 testes)', 'Três testes no período', 450),
+    ('${cbExame}', 'Exame', 'Exame final', 800)
+`)
+
+const rAnon026 = (await como(null, `select * from public.aplicar_cobranca('${cbTestes}', null, true)`))[0]
+verificar('026: anónimo não aplica cobranças',
+  rAnon026?.aplicados === 0 && /Apenas a secretaria/.test(rAnon026?.mensagem ?? ''), JSON.stringify(rAnon026))
+
+// Aplicar a todos os activos (contagem dinâmica: outros grupos matriculam alunos)
+const activos026 = (await db.query(
+  `select count(*)::int as n from public.alunos_matriculados where estado_aluno = 'ativo'`)).rows[0].n
+const rTodos026 = (await como(staff, `select * from public.aplicar_cobranca('${cbTestes}', null, true)`))[0]
+verificar('026: aplicar a todos os activos cria uma dívida por aluno',
+  rTodos026?.aplicados === activos026, `${rTodos026?.aplicados} de ${activos026}`)
+const div026 = (await db.query(`
+  select count(*)::int as n, coalesce(sum(valor), 0) as soma
+    from public.cobrancas_alunos
+   where cobranca_id = '${cbTestes}' and estado = 'pendente'
+`)).rows[0]
+verificar('026: dívidas nascem pendentes com o valor do catálogo',
+  div026.n === activos026 && Number(div026.soma) === 450 * activos026, JSON.stringify(div026))
+
+const rRepet026 = (await como(staff, `select * from public.aplicar_cobranca('${cbTestes}', null, true)`))[0]
+verificar('026: re-aplicar não duplica dívidas', rRepet026?.aplicados === 0, JSON.stringify(rRepet026))
+
+const rEscolha026 = (await como(staff,
+  `select * from public.aplicar_cobranca('${cbExame}', array['${a1}','${a2}']::uuid[], false)`))[0]
+verificar('026: aplicar a alunos escolhidos cria 2 dívidas', rEscolha026?.aplicados === 2, JSON.stringify(rEscolha026))
+
+const rSemEscolha = (await como(staff, `select * from public.aplicar_cobranca('${cbExame}', null, false)`))[0]
+verificar('026: sem alunos escolhidos a RPC explica o que falta',
+  rSemEscolha?.aplicados === 0 && /Escolha os alunos/.test(rSemEscolha?.mensagem ?? ''), JSON.stringify(rSemEscolha))
+
+await como(staff, `update public.cobrancas set ativo = false where id = '${cbExame}'`)
+const rDesac026 = (await como(staff, `select * from public.aplicar_cobranca('${cbExame}', array['${a3}']::uuid[], false)`))[0]
+verificar('026: cobrança desactivada não é aplicável',
+  rDesac026?.aplicados === 0 && /desactivada/.test(rDesac026?.mensagem ?? ''), JSON.stringify(rDesac026))
+
+// Valor copiado na aplicação: mudar o catálogo não reescreve dívidas lançadas.
+await como(staff, `update public.cobrancas set valor = 999 where id = '${cbTestes}'`)
+const somaDepois = (await db.query(
+  `select coalesce(sum(valor), 0) as soma from public.cobrancas_alunos where cobranca_id = '${cbTestes}'`)).rows[0].soma
+verificar('026: mudar o preço do catálogo não altera dívidas lançadas',
+  Number(somaDepois) === 450 * activos026, String(somaDepois))
+
+// Com histórico não se apaga o tipo (FK restrict — a UI pré-verifica também).
+await esperaErro(staff, `delete from public.cobrancas where id = '${cbTestes}'`,
+  /foreign key constraint/i, '026: apagar tipo com dívidas registadas é bloqueado')
+
+// Estado: marcar pago por escrita directa do staff, como em pagamentos.
+const umaDiv026 = (await db.query(
+  `select id from public.cobrancas_alunos where cobranca_id = '${cbExame}' order by created_at limit 1`)).rows[0]
+await como(staff,
+  `update public.cobrancas_alunos set estado = 'pago', data_pagamento = current_date, metodo = 'numerario' where id = '${umaDiv026.id}'`)
+const paga026 = (await db.query(
+  `select estado, data_pagamento from public.cobrancas_alunos where id = '${umaDiv026.id}'`)).rows[0]
+verificar('026: marcar pago grava estado e data',
+  paga026.estado === 'pago' && paga026.data_pagamento !== null, JSON.stringify(paga026))
+
+verificar('026: RPC não executável por anon',
+  (await db.query(`select has_function_privilege('anon', 'public.aplicar_cobranca(uuid, uuid[], boolean)', 'EXECUTE') as ok`)).rows[0].ok === false)
+verificar('026: RPC executável por authenticated',
+  (await db.query(`select has_function_privilege('authenticated', 'public.aplicar_cobranca(uuid, uuid[], boolean)', 'EXECUTE') as ok`)).rows[0].ok === true)
+verificar('026: RPC tem search_path fixo',
+  /search_path/.test((await db.query(`
+    select coalesce(array_to_string(proconfig, ','), '') as o
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = 'aplicar_cobranca'
+  `)).rows[0]?.o ?? ''))
 
 // ===========================================================================
 console.log(falhas === 0 ? `\n${total} verificações passaram.` : `\n${falhas} de ${total} verificações FALHARAM.`)

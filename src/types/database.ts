@@ -48,8 +48,10 @@ export interface Inscricao {
   id: string
   numero_inscricao: string
   nome_completo: string
-  numero_bi: string
-  data_nascimento: string
+  /** Opcional desde a 024 — identidade para o limite é BI ou nome+celular. */
+  numero_bi: string | null
+  /** Opcional desde a 024 — o formulário público já não pede. */
+  data_nascimento: string | null
   genero: string | null
   email: string | null
   telefone_whatsapp: string
@@ -220,6 +222,42 @@ export interface Pagamento {
     numero_estudante: string
     inscricoes?: { nome_completo: string } | null
     turmas?: { nome_turma: string; turno: Turno } | null
+  } | null
+}
+
+// ---------------------------------------------------------------------------
+// Cobranças configuráveis (026): catálogo nas Configurações + dividas por aluno
+// ---------------------------------------------------------------------------
+
+export interface Cobranca {
+  id: string
+  nome: string
+  descricao: string | null
+  valor: number
+  ativo: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface CobrancaAluno {
+  id: string
+  cobranca_id: string
+  aluno_id: string
+  /** Valor copiado na aplicação — mudar o catálogo não altera dívidas lançadas. */
+  valor: number
+  estado: EstadoPagamento
+  data_pagamento: string | null
+  metodo: MetodoPagamento | null
+  referencia: string | null
+  observacoes: string | null
+  created_at: string
+  updated_at: string
+  // relações opcionais (joins)
+  cobrancas?: { nome: string; descricao: string | null } | null
+  alunos_matriculados?: {
+    numero_estudante: string
+    inscricoes?: { nome_completo: string } | null
+    turmas?: { nome_turma: string } | null
   } | null
 }
 

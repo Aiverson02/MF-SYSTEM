@@ -13,8 +13,8 @@ type AlunoCompleto = AlunoMatriculado & {
   inscricoes?: {
     nome_completo: string
     numero_inscricao: string
-    numero_bi: string
-    data_nascimento: string
+    numero_bi: string | null
+    data_nascimento: string | null
     genero: string | null
     email: string | null
     telefone_whatsapp: string

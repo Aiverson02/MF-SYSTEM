@@ -369,6 +369,43 @@ export default function Utilizadores() {
     void reload()
   }
 
+  const apagarUtilizador = async (u: ListarStaff) => {
+    const ok = await confirmarAcao({
+      title: 'Eliminar utilizador',
+      message: `Eliminar a conta ${u.email}?\n\nA conta deixa de poder entrar no sistema. Esta acção não pode ser desfeita.`,
+      confirmLabel: 'Eliminar',
+      danger: true,
+    })
+    if (!ok) return
+    const { data, error } = await supabase.rpc('apagar_utilizador', { p_user_id: u.id })
+    const r = (data as { sucesso: boolean; mensagem: string }[] | null)?.[0]
+    if (error || !r?.sucesso) {
+      pushToast(r?.mensagem ?? error?.message ?? 'Erro ao eliminar utilizador.', 'erro')
+      return
+    }
+    showSuccess(r.mensagem)
+    void reload()
+  }
+
+  const removerContaFormador = async (f: FormadorConta) => {
+    if (!f.user_id) return
+    const ok = await confirmarAcao({
+      title: 'Remover conta do formador',
+      message: `Remover a conta de acesso de ${f.nome}?\n\nO registo do formador fica intacto — pode ligar outra conta depois.`,
+      confirmLabel: 'Remover',
+      danger: true,
+    })
+    if (!ok) return
+    const { data, error } = await supabase.rpc('apagar_utilizador', { p_user_id: f.user_id })
+    const r = (data as { sucesso: boolean; mensagem: string }[] | null)?.[0]
+    if (error || !r?.sucesso) {
+      pushToast(r?.mensagem ?? error?.message ?? 'Erro ao remover a conta.', 'erro')
+      return
+    }
+    showSuccess(r.mensagem)
+    void reloadFormadores()
+  }
+
   return (
     <AdminGate>
       <PageHeader
@@ -426,6 +463,9 @@ export default function Utilizadores() {
                         </select>
                         <button onClick={() => setRedefinindo(u)} className="btn-secondary px-2.5 py-1 text-xs">
                           Redefinir password
+                        </button>
+                        <button onClick={() => void apagarUtilizador(u)} className="btn-danger px-2.5 py-1 text-xs">
+                          Eliminar
                         </button>
                       </div>
                     </td>
@@ -485,12 +525,20 @@ export default function Utilizadores() {
                     <td className="px-4 py-2.5 text-right">
                       <div className="flex flex-wrap justify-end gap-2">
                         {f.user_id ? (
-                          <button
-                            onClick={() => setContaFormador({ formador: f, modo: 'password' })}
-                            className="btn-secondary px-2.5 py-1 text-xs"
-                          >
-                            Redefinir password
-                          </button>
+                          <>
+                            <button
+                              onClick={() => setContaFormador({ formador: f, modo: 'password' })}
+                              className="btn-secondary px-2.5 py-1 text-xs"
+                            >
+                              Redefinir password
+                            </button>
+                            <button
+                              onClick={() => void removerContaFormador(f)}
+                              className="btn-danger px-2.5 py-1 text-xs"
+                            >
+                              Remover conta
+                            </button>
+                          </>
                         ) : (
                           <>
                             <button

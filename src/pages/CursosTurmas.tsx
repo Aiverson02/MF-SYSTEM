@@ -175,15 +175,21 @@ interface TurmaForm {
 
 function TurmaModal({
   cursos,
+  formadores,
   turma,
+  formadoresIniciais,
   onClose,
   onDone,
 }: {
   cursos: Curso[]
+  formadores: Formador[]
   turma: Turma | null
+  /** formador_id já atribuídos à turma (turma_formadores) ao abrir o modal. */
+  formadoresIniciais: string[]
   onClose: () => void
   onDone: () => void
 }) {
+  const [formadoresSel, setFormadoresSel] = useState<string[]>(formadoresIniciais)
   const [form, setForm] = useState<TurmaForm>(
     turma ?? {
       curso_id: cursos[0]?.id ?? '',
@@ -209,10 +215,26 @@ function TurmaModal({
         limite_vagas: Number(form.limite_vagas),
         ano_lectivo: Number(form.ano_lectivo),
       }
-      const { error } = turma
-        ? await supabase.from('turmas').update(payload).eq('id', turma.id)
-        : await supabase.from('turmas').insert(payload)
-      if (error) throw error
+      let turmaId = turma?.id
+      if (turma) {
+        const { error } = await supabase.from('turmas').update(payload).eq('id', turma.id)
+        if (error) throw error
+      } else {
+        const { data: criada, error } = await supabase.from('turmas').insert(payload).select('id').single()
+        if (error) throw error
+        turmaId = criada.id as string
+      }
+
+      // Formadores da turma (016): substituir a atribuição — o mesmo curso
+      // pode ter formadores diferentes por turno (manhã/tarde).
+      const { error: errDel } = await supabase.from('turma_formadores').delete().eq('turma_id', turmaId)
+      if (errDel) throw errDel
+      if (formadoresSel.length > 0) {
+        const { error: errIns } = await supabase
+          .from('turma_formadores')
+          .insert(formadoresSel.map((fid) => ({ turma_id: turmaId, formador_id: fid })))
+        if (errIns) throw errIns
+      }
       showSuccess(turma ? 'Turma actualizada.' : 'Turma criada.')
       onDone()
       onClose()
@@ -293,6 +315,33 @@ function TurmaModal({
               />
             </div>
           </div>
+
+          <div>
+            <label className="label-section mb-1 block">Formadores da turma</label>
+            <p className="mb-2 text-xs text-ink-faint">
+              O mesmo curso pode ter formadores diferentes por turno (ex.: manhã e tarde). Marque todos os que
+              leccionam esta turma.
+            </p>
+            {formadores.length === 0 ? (
+              <p className="text-xs text-warn">Nenhum formador registado: crie na aba Formadores.</p>
+            ) : (
+              <div className="max-h-40 space-y-1.5 overflow-y-auto rounded-md border border-line p-2">
+                {formadores.map((f) => (
+                  <label key={f.id} className="flex cursor-pointer items-center gap-2 text-[13px] text-ink">
+                    <input
+                      type="checkbox"
+                      checked={formadoresSel.includes(f.id)}
+                      onChange={() =>
+                        setFormadoresSel((s) => (s.includes(f.id) ? s.filter((x) => x !== f.id) : [...s, f.id]))
+                      }
+                    />
+                    <span>{f.nome}</span>
+                    {f.especialidade && <span className="text-xs text-ink-faint">· {f.especialidade}</span>}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {erro && <p className="mt-3 text-sm text-danger">{erro}</p>}
@@ -315,12 +364,18 @@ function TurmaModal({
 // Página principal
 // ---------------------------------------------------------------------------
 
+/** Turma com as relações lidas na página: curso e formadores atribuídos (016). */
+type TurmaComRelacoes = Turma & {
+  cursos?: { nome: string; codigo: string } | null
+  turma_formadores?: { formador_id: string }[] | null
+}
+
 type Tab = 'cursos' | 'turmas' | 'formadores'
 
 export default function CursosTurmas() {
   const [tab, setTab] = useState<Tab>('cursos')
   const [modalCurso, setModalCurso] = useState<CursoForm | null>(null)
-  const [modalTurma, setModalTurma] = useState<Turma | null>(null)
+  const [modalTurma, setModalTurma] = useState<TurmaComRelacoes | null>(null)
   const [turmaNova, setTurmaNova] = useState(false)
   const [modalFormador, setModalFormador] = useState<Formador | null>(null)
   const [formadorNovo, setFormadorNovo] = useState(false)
@@ -342,16 +397,16 @@ export default function CursosTurmas() {
     async () =>
       (await supabase
         .from('turmas')
-        .select('*, cursos(nome, codigo)')
+        .select('*, cursos(nome, codigo), turma_formadores(formador_id)')
         .order('ano_lectivo', { ascending: false })
         .order('nome_turma')) as {
-        data: (Turma & { cursos?: { nome: string; codigo: string } | null })[] | null
+        data: TurmaComRelacoes[] | null
         error: { message: string } | null
       },
     [],
   )
   const { data: turmas, loading: loadingTurmas, error: errorTurmas, reload: reloadTurmas } = useAsyncData<
-    (Turma & { cursos?: { nome: string; codigo: string } | null })[]
+    TurmaComRelacoes[]
   >(turmasFetcher, [])
 
   const formadoresFetcher = useCallback(
@@ -542,6 +597,7 @@ export default function CursosTurmas() {
                   <tr className="border-b border-line text-[11px] uppercase tracking-[0.06em] text-ink-faint">
                     <th className="px-4 py-2.5 font-medium">Turma</th>
                     <th className="px-4 py-2.5 font-medium">Curso</th>
+                    <th className="px-4 py-2.5 font-medium">Formadores</th>
                     <th className="px-4 py-2.5 font-medium">Turno</th>
                     <th className="px-4 py-2.5 font-medium">Ano</th>
                     <th className="px-4 py-2.5 font-medium">Vagas</th>
@@ -556,6 +612,12 @@ export default function CursosTurmas() {
                       <tr key={t.id} className="hover:bg-canvas">
                         <td className="px-4 py-2.5 font-medium text-ink">{t.nome_turma}</td>
                         <td className="px-4 py-2.5 text-ink-muted">{t.cursos?.nome ?? ''}</td>
+                        <td className="px-4 py-2.5 text-ink-muted">
+                          {(t.turma_formadores ?? [])
+                            .map((tf) => formadores?.find((f) => f.id === tf.formador_id)?.nome ?? '')
+                            .filter(Boolean)
+                            .join(', ')}
+                        </td>
                         <td className="px-4 py-2.5 text-ink-muted">{TURNO_LABELS[t.turno]}</td>
                         <td className="px-4 py-2.5 tnum text-ink-muted">{t.ano_lectivo}</td>
                         <td className="px-4 py-2.5">
@@ -671,7 +733,9 @@ export default function CursosTurmas() {
         createPortal(
           <TurmaModal
             cursos={cursos ?? []}
+            formadores={formadores ?? []}
             turma={modalTurma}
+            formadoresIniciais={(modalTurma?.turma_formadores ?? []).map((tf) => tf.formador_id)}
             onClose={() => {
               setModalTurma(null)
               setTurmaNova(false)

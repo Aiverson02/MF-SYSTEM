@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import type { EstadoPagamento, MetodoPagamento, Pagamento, PosConclusao } from '../types/database'
+import type { CobrancaAluno, EstadoPagamento, MetodoPagamento, Pagamento, PosConclusao } from '../types/database'
 import { ESTADO_PAGAMENTO_LABELS, ITEM_POS_LABELS, METODO_LABELS, mesLabel } from '../types/database'
 import { useAsyncData } from '../hooks/useAsyncData'
 import { EmptyState, ErrorMessage, LoadingBlock, PageHeader } from '../components/ui'
@@ -9,7 +9,7 @@ import { confirmarAcao, showError, showSuccess } from '../lib/alerts'
 import { pushToast } from '../components/ToastHost'
 import { createPortal } from 'react-dom'
 import { useEscapeKey } from '../hooks/useEscapeKey'
-import { imprimirRecibo, imprimirReciboPos } from '../lib/recibo'
+import { imprimirRecibo, imprimirReciboCobranca, imprimirReciboPos } from '../lib/recibo'
 import { useFinancas } from '../hooks/useFinancas'
 import { useIsAdmin } from '../hooks/usePerfil'
 
@@ -256,6 +256,242 @@ function GateFinancas({
 // ---------------------------------------------------------------------------
 // Página principal
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Cobranças avulsas (026): testes, material, exame... atribuídas nas
+// Configurações. Pendentes aqui, com "registar pago" e recibo — tal como as
+// mensalidades. Não seguem o filtro de mês: não têm mês de referência.
+// ---------------------------------------------------------------------------
+
+function SecaoCobrancasAlunos() {
+  const fetcher = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('cobrancas_alunos')
+      .select(
+        '*, cobrancas(nome, descricao), alunos_matriculados(numero_estudante, inscricoes(nome_completo), turmas(nome_turma))',
+      )
+      .order('created_at', { ascending: false })
+    return { data: (data ?? []) as CobrancaAluno[], error }
+  }, [])
+  const { data: cobrancasAlunos, loading, error, reload } = useAsyncData<CobrancaAluno[]>(fetcher, [])
+
+  const [estadoFiltro, setEstadoFiltro] = useState<'todos' | EstadoPagamento>('todos')
+  const [pesquisa, setPesquisa] = useState('')
+
+  const kpis = useMemo(() => {
+    const pendentes = (cobrancasAlunos ?? []).filter((c) => c.estado === 'pendente')
+    const pagos = (cobrancasAlunos ?? []).filter((c) => c.estado === 'pago')
+    return {
+      nPendentes: pendentes.length,
+      porPagar: pendentes.reduce((s, c) => s + Number(c.valor), 0),
+      recebido: pagos.reduce((s, c) => s + Number(c.valor), 0),
+    }
+  }, [cobrancasAlunos])
+
+  const filtradas = useMemo(() => {
+    let base = cobrancasAlunos ?? []
+    if (estadoFiltro !== 'todos') base = base.filter((c) => c.estado === estadoFiltro)
+    const q = pesquisa.trim().toLowerCase()
+    if (q) {
+      base = base.filter(
+        (c) =>
+          (c.alunos_matriculados?.inscricoes?.nome_completo ?? '').toLowerCase().includes(q) ||
+          (c.alunos_matriculados?.numero_estudante ?? '').toLowerCase().includes(q) ||
+          (c.cobrancas?.nome ?? '').toLowerCase().includes(q),
+      )
+    }
+    return base
+  }, [cobrancasAlunos, estadoFiltro, pesquisa])
+
+  const alterarEstado = async (
+    c: CobrancaAluno,
+    estado: EstadoPagamento,
+    confirmacao?: { titulo: string; mensagem: string; perigo?: boolean },
+  ) => {
+    if (confirmacao) {
+      const ok = await confirmarAcao({
+        title: confirmacao.titulo,
+        message: confirmacao.mensagem,
+        confirmLabel: 'Confirmar',
+        danger: confirmacao.perigo ?? false,
+      })
+      if (!ok) return
+    }
+    const patch: { estado: EstadoPagamento; data_pagamento: string | null; metodo: MetodoPagamento | null } =
+      estado === 'pago'
+        ? { estado, data_pagamento: new Date().toISOString().slice(0, 10), metodo: 'numerario' }
+        : { estado, data_pagamento: null, metodo: null }
+    const { error: err } = await supabase.from('cobrancas_alunos').update(patch).eq('id', c.id)
+    if (err) {
+      showError(err.message)
+      return
+    }
+    pushToast(
+      estado === 'pago'
+        ? 'Pagamento registado. Método: numerário — edite a linha para outro método.'
+        : estado === 'isento'
+          ? 'Cobrança isenta.'
+          : 'Cobrança cancelada — deixa de contar para o devido.',
+      'sucesso',
+    )
+    void reload()
+  }
+
+  return (
+    <div className="cell mt-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <div>
+          <p className="label-section">Cobranças avulsas</p>
+          <p className="text-[11px] text-ink-faint">
+            Testes, material, exame... — criadas em{' '}
+            <Link to="/admin/configuracoes" className="text-accent hover:text-accent-strong">
+              Configurações
+            </Link>
+          </p>
+        </div>
+        <div className="flex items-center gap-3 text-[11px] text-ink-faint">
+          <span>
+            {kpis.nPendentes} pendente(s) · {fmtMzn(kpis.porPagar)} por pagar
+          </span>
+          <span className="text-ok">{fmtMzn(kpis.recebido)} recebido</span>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 px-4 pt-3">
+        <div className="flex w-fit gap-0.5 rounded-md border border-line p-0.5">
+          {(['todos', 'pendente', 'pago', 'isento', 'cancelado'] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setEstadoFiltro(f)}
+              className={`rounded px-3 py-1 text-[13px] font-medium ${
+                estadoFiltro === f ? 'bg-accent text-surface' : 'text-ink-muted hover:bg-raised hover:text-ink'
+              }`}
+            >
+              {f === 'todos' ? 'Todos' : ESTADO_PAGAMENTO_LABELS[f]}
+            </button>
+          ))}
+        </div>
+        <input
+          value={pesquisa}
+          onChange={(e) => setPesquisa(e.target.value)}
+          className="input ml-auto w-64"
+          placeholder="Pesquisar aluno ou cobrança..."
+        />
+      </div>
+
+      <div className="p-4">
+        {loading ? (
+          <LoadingBlock />
+        ) : error ? (
+          <ErrorMessage message={error} onRetry={() => void reload()} />
+        ) : (cobrancasAlunos ?? []).length === 0 ? (
+          <EmptyState
+            message="Sem cobranças avulsas. Configure os tipos em Configurações e aplique-os aos alunos."
+            icon="🧾"
+          />
+        ) : filtradas.length === 0 ? (
+          <EmptyState message="Nenhuma cobrança com estes filtros." icon="🔍" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-[13px]">
+              <thead>
+                <tr className="border-b border-line text-[11px] uppercase tracking-[0.06em] text-ink-faint">
+                  <th className="px-4 py-2.5 font-medium">Aluno</th>
+                  <th className="px-4 py-2.5 font-medium">Cobrança</th>
+                  <th className="px-4 py-2.5 font-medium">Valor</th>
+                  <th className="px-4 py-2.5 font-medium">Estado</th>
+                  <th className="px-4 py-2.5 font-medium text-right">Acções</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {filtradas.map((c) => {
+                  const a = c.alunos_matriculados
+                  return (
+                    <tr key={c.id} className="hover:bg-canvas">
+                      <td className="px-4 py-2.5">
+                        <p className="font-medium text-ink">{a?.inscricoes?.nome_completo ?? '—'}</p>
+                        <p className="font-mono text-[11px] text-ink-faint">{a?.numero_estudante}</p>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <p className="text-ink">{c.cobrancas?.nome ?? '—'}</p>
+                        {c.cobrancas?.descricao && (
+                          <p className="text-[11px] text-ink-faint">{c.cobrancas.descricao}</p>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 tnum text-ink">{fmtMzn(Number(c.valor))}</td>
+                      <td className="px-4 py-2.5">
+                        <span className="inline-flex items-center gap-2 text-[13px]">
+                          <span
+                            className={`dot ${
+                              c.estado === 'pago'
+                                ? 'bg-ok'
+                                : c.estado === 'pendente'
+                                  ? 'bg-warn'
+                                  : c.estado === 'isento'
+                                    ? 'bg-accent'
+                                    : 'bg-ink-faint'
+                            }`}
+                            aria-hidden
+                          />
+                          {ESTADO_PAGAMENTO_LABELS[c.estado]}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        <div className="flex justify-end gap-2">
+                          {c.estado === 'pendente' && (
+                            <>
+                              <button
+                                onClick={() => void alterarEstado(c, 'pago')}
+                                className="btn-primary px-2.5 py-1 text-xs"
+                              >
+                                Registar pago
+                              </button>
+                              <button
+                                onClick={() =>
+                                  void alterarEstado(c, 'isento', {
+                                    titulo: 'Isentar cobrança',
+                                    mensagem: `Isentar "${c.cobrancas?.nome ?? ''}" de ${a?.inscricoes?.nome_completo ?? 'aluno'} (${fmtMzn(Number(c.valor))})?`,
+                                  })
+                                }
+                                className="btn-secondary px-2.5 py-1 text-xs"
+                              >
+                                Isentar
+                              </button>
+                              <button
+                                onClick={() =>
+                                  void alterarEstado(c, 'cancelado', {
+                                    titulo: 'Cancelar cobrança',
+                                    mensagem: `Cancelar "${c.cobrancas?.nome ?? ''}" de ${a?.inscricoes?.nome_completo ?? 'aluno'}?\n\nDeixa de contar; pode aplicar a cobrança de novo.`,
+                                    perigo: true,
+                                  })
+                                }
+                                className="btn-danger px-2.5 py-1 text-xs"
+                              >
+                                Cancelar
+                              </button>
+                            </>
+                          )}
+                          {c.estado === 'pago' && (
+                            <button
+                              onClick={() => void imprimirReciboCobranca(c)}
+                              className="btn-secondary px-2.5 py-1 text-xs"
+                            >
+                              Recibo
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 export default function Pagamentos() {
   const isAdmin = useIsAdmin()
@@ -621,6 +857,8 @@ export default function Pagamentos() {
           )}
         </>
       )}
+
+      <SecaoCobrancasAlunos />
       </>
       )}
 
