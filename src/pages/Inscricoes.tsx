@@ -6,9 +6,12 @@ import { ESTADO_LABELS } from '../types/database'
 import { useAsyncData } from '../hooks/useAsyncData'
 import { Badge, EmptyState, ErrorMessage, LoadingBlock, PageHeader } from '../components/ui'
 import { format } from '../lib/format'
-import { confirmarAcao, showError, showSuccess } from '../lib/alerts'
+import { confirmarAcao, showError, showInfo, showSuccess } from '../lib/alerts'
+import { validarTodasInscricoes, type ResumoValidacaoMassa } from '../lib/inscricoesService'
 import ValidacaoInscricao from '../components/ValidacaoInscricao'
 import NovaInscricaoModal from '../components/NovaInscricaoModal'
+import EditarInscricaoModal from '../components/EditarInscricaoModal'
+import ImportarInscricoesModal from '../components/ImportarInscricoesModal'
 
 const PAGE_SIZE = 15
 
@@ -29,6 +32,11 @@ export default function Inscricoes() {
   const [estadoFiltro, setEstadoFiltro] = useState<EstadoInscricao | 'todos'>('todos')
   const [pagina, setPagina] = useState(0)
   const [novaInscricao, setNovaInscricao] = useState(false)
+  const [importarAberto, setImportarAberto] = useState(false)
+  const [editando, setEditando] = useState<Inscricao | null>(null)
+  // Validação em massa: progresso da execução e resumo da última
+  const [progressoMassa, setProgressoMassa] = useState<{ feitas: number; total: number } | null>(null)
+  const [resumoMassa, setResumoMassa] = useState<ResumoValidacaoMassa | null>(null)
 
   // Turmas para o modal de alocação
   const turmasFetcher = useCallback(
@@ -39,7 +47,7 @@ export default function Inscricoes() {
       },
     [],
   )
-  const { data: turmas } = useAsyncData<Turma[]>(turmasFetcher, [])
+  const { data: turmas, reload: reloadTurmas } = useAsyncData<Turma[]>(turmasFetcher, [])
 
   // Cursos para o filtro
   const cursosFetcher = useCallback(
@@ -171,17 +179,116 @@ export default function Inscricoes() {
     setSearchParams({}, { replace: true })
   }
 
+  /** Valida e matricula de uma vez todas as pendentes e as aprovadas sem turma. */
+  const validarTodas = async () => {
+    setResumoMassa(null)
+    const r = await validarTodasInscricoes({
+      confirmar: ({ pendentes, aprovadas }) =>
+        confirmarAcao({
+          title: 'Validar todas as inscrições',
+          message:
+            `Serão processadas ${pendentes} inscrição(ões) pendente(s) e ${aprovadas} aprovada(s) ainda sem turma:\n\n` +
+            '· os documentos pendentes ficam validados;\n' +
+            '· a inscrição é aprovada;\n' +
+            '· o candidato entra na turma do seu curso com o turno pretendido, enquanto houver vagas.\n\n' +
+            'As que não encontrarem turma ou que falharem ficam por fazer e aparecem no resumo. Continuar?',
+          confirmLabel: 'Validar todas',
+        }),
+      onProgresso: (feitas, total) => setProgressoMassa({ feitas, total }),
+    })
+    setProgressoMassa(null)
+
+    if (r.estado === 'cancelado') return
+    if (r.estado === 'erro') {
+      showError(r.erro)
+      return
+    }
+
+    setResumoMassa(r.resumo)
+    void reload()
+    void reloadTurmas()
+
+    if (r.resumo.total === 0) {
+      showInfo('Não há inscrições pendentes nem aprovadas sem turma.')
+    } else if (r.resumo.comErro.length === 0 && r.resumo.semTurma.length === 0) {
+      showSuccess(`${r.resumo.alocadas} inscrição(ões) validada(s) e matriculada(s).`)
+    } else {
+      showInfo(
+        `Concluído: ${r.resumo.alocadas} matriculada(s), ${r.resumo.semTurma.length} sem turma, ${r.resumo.comErro.length} com erro.`,
+      )
+    }
+  }
+
   return (
     <>
       <PageHeader
         title="Inscrições"
         subtitle={`${total} inscrição(ões) encontrada(s)`}
         actions={
-          <button onClick={() => setNovaInscricao(true)} className="btn-primary">
-            Nova Inscrição
-          </button>
+          <>
+            <button
+              onClick={() => void validarTodas()}
+              disabled={progressoMassa !== null}
+              className="btn-secondary"
+              title="Aprova e matricula todas as inscrições pendentes na turma do seu curso e turno"
+            >
+              {progressoMassa ? `A validar… ${progressoMassa.feitas}/${progressoMassa.total}` : 'Validar todas'}
+            </button>
+            <button
+              onClick={() => setImportarAberto(true)}
+              className="btn-secondary"
+              title="Importar uma lista de alunos de CSV ou Excel e encaixar cada um na turma do curso e turno"
+            >
+              Importar CSV/Excel
+            </button>
+            <button onClick={() => setNovaInscricao(true)} className="btn-primary">
+              Nova Inscrição
+            </button>
+          </>
         }
       />
+
+      {/* Resumo da última validação em massa */}
+      {resumoMassa && resumoMassa.total > 0 && (
+        <div className="mb-4 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1">
+              <p className="font-semibold text-ink">
+                Validação em massa: {resumoMassa.alocadas} de {resumoMassa.total} matriculada(s)
+              </p>
+              <p className="text-ink-muted">
+                {resumoMassa.docsValidados} documento(s) validado(s)
+                {resumoMassa.semTurma.length > 0 &&
+                  ` · ${resumoMassa.semTurma.length} sem turma com vagas no turno pretendido`}
+                {resumoMassa.comErro.length > 0 && ` · ${resumoMassa.comErro.length} com erro`}
+              </p>
+              {resumoMassa.semTurma.length > 0 && (
+                <p className="text-xs text-warn">
+                  Sem turma:{' '}
+                  {resumoMassa.semTurma
+                    .slice(0, 6)
+                    .map((i) => `${i.numero} (${i.nome})`)
+                    .join(', ')}
+                  {resumoMassa.semTurma.length > 6 && ` e mais ${resumoMassa.semTurma.length - 6}`}
+                </p>
+              )}
+              {resumoMassa.comErro.length > 0 && (
+                <p className="text-xs text-danger">
+                  Erros:{' '}
+                  {resumoMassa.comErro
+                    .slice(0, 4)
+                    .map((i) => `${i.numero}: ${i.erro}`)
+                    .join(' · ')}
+                  {resumoMassa.comErro.length > 4 && ` · e mais ${resumoMassa.comErro.length - 4}`}
+                </p>
+              )}
+            </div>
+            <button onClick={() => setResumoMassa(null)} className="btn-ghost p-1.5" aria-label="Fechar resumo">
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Notificação realtime */}
       {notificacao && (
@@ -286,6 +393,9 @@ export default function Inscricoes() {
                           <button onClick={() => abrirValidacao(i.id)} className="btn-secondary px-2.5 py-1 text-xs">
                             Validar
                           </button>
+                          <button onClick={() => setEditando(i)} className="btn-secondary px-2.5 py-1 text-xs">
+                            Editar
+                          </button>
                           <button
                             onClick={() => void eliminarInscricao(i)}
                             className="btn-danger px-2.5 py-1 text-xs"
@@ -329,6 +439,20 @@ export default function Inscricoes() {
       {/* Modal de nova inscrição (staff) */}
       {novaInscricao && (
         <NovaInscricaoModal onClose={() => setNovaInscricao(false)} onDone={() => void reload()} />
+      )}
+
+      {/* Importação em massa de CSV/Excel */}
+      {importarAberto && (
+        <ImportarInscricoesModal onClose={() => setImportarAberto(false)} onDone={() => void reload()} />
+      )}
+
+      {/* Edição da inscrição */}
+      {editando && (
+        <EditarInscricaoModal
+          inscricao={editando}
+          onClose={() => setEditando(null)}
+          onDone={() => void reload()}
+        />
       )}
 
       {/* Modal de validação */}

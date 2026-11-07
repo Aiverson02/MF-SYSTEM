@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import type { Cobranca, ConfigInstituicao } from '../types/database'
+import type { Cobranca, ConfigInstituicao, ConfigPagamento, Curso } from '../types/database'
 import { useAsyncData } from '../hooks/useAsyncData'
 import { NOME_INSTITUICAO_DEFAULT } from '../hooks/useInstituicao'
 import { useEscapeKey } from '../hooks/useEscapeKey'
@@ -319,21 +319,234 @@ function ConfigForm({ inicial }: { inicial: ConfigInstituicao }) {
 }
 
 // ---------------------------------------------------------------------------
+// Preçário por curso (027): mensalidade + dia limite que geram as cobranças
+// ---------------------------------------------------------------------------
+
+interface PrecosDoAno {
+  cursos: Curso[]
+  precos: ConfigPagamento[]
+}
+
+function SecaoPrecario() {
+  const anoActual = new Date().getFullYear()
+  const [ano, setAno] = useState(anoActual)
+  const fetcher = useCallback(async () => {
+    const [cursosRes, precosRes] = await Promise.all([
+      supabase.from('cursos').select('*').eq('ativo', true).order('nome'),
+      supabase.from('config_pagamentos').select('*').eq('ano_lectivo', ano),
+    ])
+    if (cursosRes.error || precosRes.error) {
+      return { data: null, error: cursosRes.error ?? precosRes.error }
+    }
+    return {
+      data: { cursos: (cursosRes.data ?? []) as Curso[], precos: (precosRes.data ?? []) as ConfigPagamento[] },
+      error: null,
+    }
+  }, [ano])
+  const { data, loading, error, reload } = useAsyncData<PrecosDoAno>(fetcher, [ano])
+
+  const [form, setForm] = useState<Record<string, { mensalidade: string; dia: string }>>({})
+  const [aGravar, setAGravar] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  // Sincroniza os inputs quando o ano ou os dados mudam.
+  useEffect(() => {
+    const novo: Record<string, { mensalidade: string; dia: string }> = {}
+    for (const curso of data?.cursos ?? []) {
+      const preco = data?.precos.find((p) => p.curso_id === curso.id)
+      novo[curso.id] = {
+        mensalidade: preco ? String(preco.valor_mensalidade) : '',
+        dia: preco ? String(preco.dia_limite) : '5',
+      }
+    }
+    setForm(novo)
+  }, [data])
+
+  const alterar = (cursoId: string, campo: 'mensalidade' | 'dia', valor: string) =>
+    setForm((f) => ({ ...f, [cursoId]: { ...(f[cursoId] ?? { mensalidade: '', dia: '5' }), [campo]: valor } }))
+
+  const guardar = async () => {
+    setErro(null)
+    const linhas = Object.entries(form)
+      .filter(([, v]) => v.mensalidade.trim() !== '')
+      .map(([cursoId, v]) => {
+        const mensalidade = Number(v.mensalidade)
+        const dia = Number(v.dia || '5')
+        return { curso_id: cursoId, ano_lectivo: ano, valor_mensalidade: mensalidade, dia_limite: dia }
+      })
+
+    if (linhas.length === 0) {
+      setErro('Preencha a mensalidade de pelo menos um curso.')
+      return
+    }
+    for (const l of linhas) {
+      if (!Number.isFinite(l.valor_mensalidade) || l.valor_mensalidade < 0) {
+        setErro('As mensalidades têm de ser números iguais ou superiores a zero.')
+        return
+      }
+      if (!Number.isInteger(l.dia_limite) || l.dia_limite < 1 || l.dia_limite > 28) {
+        setErro('O dia limite tem de ser um número inteiro entre 1 e 28.')
+        return
+      }
+    }
+
+    // Mensalidade apagada = curso sem preçário neste ano: remover a linha
+    // antiga, senão o valor anterior continuaria a gerar cobranças.
+    const vazios = Object.entries(form)
+      .filter(([, v]) => v.mensalidade.trim() === '')
+      .map(([cursoId]) => cursoId)
+
+    setAGravar(true)
+    const { error: err } = await supabase
+      .from('config_pagamentos')
+      .upsert(linhas, { onConflict: 'curso_id,ano_lectivo' })
+    if (err) {
+      setAGravar(false)
+      setErro(err.message)
+      return
+    }
+    if (vazios.length > 0) {
+      const { error: errDel } = await supabase
+        .from('config_pagamentos')
+        .delete()
+        .eq('ano_lectivo', ano)
+        .in('curso_id', vazios)
+      if (errDel) {
+        setAGravar(false)
+        setErro(errDel.message)
+        return
+      }
+    }
+    setAGravar(false)
+    showSuccess(`Preçário de ${ano} guardado.`)
+    void reload()
+  }
+
+  return (
+    <div className="cell mt-6 max-w-3xl p-5">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <p className="label-section">Preçário por curso — mensalidades</p>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-ink-muted" htmlFor="precario-ano">
+            Ano lectivo
+          </label>
+          <input
+            id="precario-ano"
+            type="number"
+            min="2000"
+            max="2100"
+            value={ano}
+            onChange={(e) => setAno(Number(e.target.value) || anoActual)}
+            className="input w-24 py-1 text-sm tnum"
+          />
+        </div>
+      </div>
+      <p className="mb-4 text-xs text-ink-faint">
+        O valor mensal e o dia limite são usados por <strong>Gerar cobranças do mês</strong> em Pagamentos. Sem preçário
+        para o curso/ano, nenhuma mensalidade é gerada para os alunos desse curso.
+      </p>
+
+      {loading ? (
+        <LoadingBlock />
+      ) : error ? (
+        <ErrorMessage message={error} onRetry={() => void reload()} />
+      ) : (data?.cursos ?? []).length === 0 ? (
+        <p className="rounded-md border border-dashed border-line p-4 text-sm text-ink-muted">
+          Não há cursos activos. Crie um curso primeiro.
+        </p>
+      ) : (
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-[13px]">
+              <thead>
+                <tr className="border-b border-line text-[11px] uppercase tracking-[0.06em] text-ink-faint">
+                  <th className="px-2 py-2.5 font-medium">Curso</th>
+                  <th className="px-2 py-2.5 font-medium">Mensalidade (MZN)</th>
+                  <th className="px-2 py-2.5 font-medium">Dia limite</th>
+                  <th className="px-2 py-2.5 font-medium">Estado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {(data?.cursos ?? []).map((curso) => {
+                  const v = form[curso.id] ?? { mensalidade: '', dia: '5' }
+                  const configurado = v.mensalidade.trim() !== ''
+                  return (
+                    <tr key={curso.id} className="hover:bg-canvas">
+                      <td className="px-2 py-2">
+                        <p className="font-medium text-ink">{curso.nome}</p>
+                        <p className="font-mono text-[11px] text-ink-faint">{curso.codigo}</p>
+                      </td>
+                      <td className="px-2 py-2">
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={v.mensalidade}
+                          onChange={(e) => alterar(curso.id, 'mensalidade', e.target.value)}
+                          className="input w-32 py-1 tnum"
+                          placeholder="Ex.: 1200"
+                        />
+                      </td>
+                      <td className="px-2 py-2">
+                        <input
+                          type="number"
+                          min="1"
+                          max="28"
+                          step="1"
+                          value={v.dia}
+                          onChange={(e) => alterar(curso.id, 'dia', e.target.value)}
+                          className="input w-20 py-1 tnum"
+                          disabled={!configurado}
+                        />
+                      </td>
+                      <td className="px-2 py-2">
+                        <Badge variant={configurado ? 'aprovado' : 'pendente'}>
+                          {configurado ? 'Configurado' : 'Sem preçário'}
+                        </Badge>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {erro && <p className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">{erro}</p>}
+
+          <div className="mt-4 flex items-center gap-2">
+            <button onClick={() => void guardar()} disabled={aGravar} className="btn-primary">
+              {aGravar && <Spinner className="h-4 w-4" />}
+              {aGravar ? 'A guardar...' : `Guardar preçário de ${ano}`}
+            </button>
+            <span className="text-xs text-ink-faint">
+              Deixar a mensalidade vazia mantém o curso sem preçário neste ano.
+            </span>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Cobranças (026): catálogo que o admin configura + aplicação a alunos
 // ---------------------------------------------------------------------------
 
 function CobrancaModal({
   cobranca,
+  cursos,
   onClose,
   onDone,
 }: {
   cobranca: Cobranca | null
+  cursos: Curso[]
   onClose: () => void
   onDone: () => void
 }) {
   useEscapeKey(onClose)
   const [nome, setNome] = useState(cobranca?.nome ?? '')
   const [descricao, setDescricao] = useState(cobranca?.descricao ?? '')
+  const [cursoId, setCursoId] = useState(cobranca?.curso_id ?? '')
   const [valor, setValor] = useState(String(cobranca?.valor ?? ''))
   const [ativo, setAtivo] = useState(cobranca?.ativo ?? true)
   const [loading, setLoading] = useState(false)
@@ -356,6 +569,7 @@ function CobrancaModal({
       nome: nome.trim(),
       descricao: descricao.trim() || null,
       valor: v,
+      curso_id: cursoId || null,
       ativo,
     }
     const { error } = cobranca
@@ -397,6 +611,20 @@ function CobrancaModal({
               className="input w-full"
               placeholder="Ex.: Contribuição para material e aula — 3 testes no período."
             />
+          </div>
+          <div>
+            <label className="label-section mb-1 block">Curso</label>
+            <select value={cursoId} onChange={(e) => setCursoId(e.target.value)} className="input w-full">
+              <option value="">Todos os cursos</option>
+              {cursos.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nome} ({c.codigo})
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-ink-faint">
+              Com curso definido, "Aplicar a alunos" só alcança alunos desse curso.
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -462,11 +690,13 @@ function AplicarCobrancaModal({ cobranca, onClose }: { cobranca: Cobranca; onClo
   useEffect(() => {
     let vivo = true
     void (async () => {
-      const { data, error } = await supabase
+      // Cobrança de um curso: só os alunos desse curso aparecem para escolher.
+      let query = supabase
         .from('alunos_matriculados')
-        .select('id, numero_estudante, inscricoes(nome_completo), turmas(nome_turma)')
+        .select('id, numero_estudante, inscricoes(nome_completo), turmas!inner(nome_turma)')
         .eq('estado_aluno', 'ativo')
-        .order('numero_estudante')
+      if (cobranca.curso_id) query = query.eq('turmas.curso_id', cobranca.curso_id)
+      const { data, error } = await query.order('numero_estudante')
       if (!vivo) return
       if (error) setErroAlunos(error.message)
       else setAlunos((data ?? []) as unknown as AlunoCobranca[])
@@ -474,7 +704,7 @@ function AplicarCobrancaModal({ cobranca, onClose }: { cobranca: Cobranca; onClo
     return () => {
       vivo = false
     }
-  }, [])
+  }, [cobranca.curso_id])
 
   const q = pesquisa.trim().toLowerCase()
   const filtrados = (alunos ?? []).filter(
@@ -515,6 +745,9 @@ function AplicarCobrancaModal({ cobranca, onClose }: { cobranca: Cobranca; onClo
         <h3 className="font-serif text-lg font-semibold text-ink">Aplicar cobrança</h3>
         <p className="mt-1 text-[13px] text-ink-muted">
           <strong>{cobranca.nome}</strong> — {Number(cobranca.valor).toLocaleString('pt-PT')} MT
+          {cobranca.curso_id && (
+            <span className="block text-xs text-ink-faint">Só alunos do curso {cobranca.cursos?.nome ?? ''}</span>
+          )}
         </p>
 
         <div className="mt-4 space-y-3">
@@ -558,7 +791,7 @@ function AplicarCobrancaModal({ cobranca, onClose }: { cobranca: Cobranca; onClo
                   ))
                 )}
               </div>
-              <p className="mt-1 text-xs text-ink-faint">Seleccionados: {escolhidos.length}</p>
+                  <p className="mt-1 text-xs text-ink-faint">Seleccionados: {escolhidos.length}</p>
             </div>
           )}
 
@@ -586,13 +819,24 @@ function AplicarCobrancaModal({ cobranca, onClose }: { cobranca: Cobranca; onClo
 function SecaoCobrancas() {
   const fetcher = useCallback(
     async () =>
-      (await supabase.from('cobrancas').select('*').order('nome')) as {
+      (await supabase.from('cobrancas').select('*, cursos(nome, codigo)').order('nome')) as {
         data: Cobranca[] | null
         error: { message: string } | null
       },
     [],
   )
   const { data: cobrancas, loading, error, reload } = useAsyncData<Cobranca[]>(fetcher, [])
+
+  const cursosFetcher = useCallback(
+    async () =>
+      (await supabase.from('cursos').select('*').eq('ativo', true).order('nome')) as {
+        data: Curso[] | null
+        error: { message: string } | null
+      },
+    [],
+  )
+  const { data: cursos } = useAsyncData<Curso[]>(cursosFetcher, [])
+
   const [modal, setModal] = useState<{ modo: 'nova' } | { modo: 'editar'; cobranca: Cobranca } | null>(null)
   const [aplicando, setAplicando] = useState<Cobranca | null>(null)
 
@@ -671,6 +915,9 @@ function SecaoCobrancas() {
                   <td className="px-2 py-2.5">
                     <p className="font-medium text-ink">{c.nome}</p>
                     {c.descricao && <p className="text-xs text-ink-faint">{c.descricao}</p>}
+                    {c.cursos?.nome && (
+                      <p className="text-[11px] font-medium text-accent-ink">Só curso: {c.cursos.nome}</p>
+                    )}
                   </td>
                   <td className="px-2 py-2.5 tnum text-right text-ink">
                     {Number(c.valor).toLocaleString('pt-PT')} MT
@@ -715,6 +962,7 @@ function SecaoCobrancas() {
       {modal && (
         <CobrancaModal
           cobranca={modal.modo === 'editar' ? modal.cobranca : null}
+          cursos={cursos ?? []}
           onClose={() => setModal(null)}
           onDone={() => void reload()}
         />
@@ -773,6 +1021,7 @@ export default function Configuracoes() {
         </div>
       )}
 
+      <SecaoPrecario />
       <SecaoCobrancas />
     </AdminGate>
   )

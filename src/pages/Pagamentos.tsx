@@ -12,6 +12,7 @@ import { useEscapeKey } from '../hooks/useEscapeKey'
 import { imprimirRecibo, imprimirReciboCobranca, imprimirReciboPos } from '../lib/recibo'
 import { useFinancas } from '../hooks/useFinancas'
 import { useIsAdmin } from '../hooks/usePerfil'
+import RelatorioMensalModal from '../components/RelatorioMensalModal'
 
 /** 'YYYY-MM-01' para o mês actual */
 const mesActual = () => {
@@ -501,6 +502,7 @@ export default function Pagamentos() {
   const [pesquisa, setPesquisa] = useState('')
   const [modal, setModal] = useState<Pagamento | null>(null)
   const [gerando, setGerando] = useState(false)
+  const [relatorioAberto, setRelatorioAberto] = useState(false)
 
   const fetcher = useCallback(async () => {
     const { data, error } = await supabase
@@ -619,10 +621,17 @@ export default function Pagamentos() {
         title="Pagamentos"
         subtitle="Mensalidades por aluno — cobrança, registo e acompanhamento"
         actions={
-          isAdmin ? (
-            <button onClick={() => void gerarCobrancas()} disabled={gerando} className="btn-primary">
-              {gerando ? 'A gerar...' : 'Gerar cobranças do mês'}
-            </button>
+          desbloqueado ? (
+            <>
+              <button onClick={() => setRelatorioAberto(true)} className="btn-secondary">
+                Relatório do mês
+              </button>
+              {isAdmin && (
+                <button onClick={() => void gerarCobrancas()} disabled={gerando} className="btn-primary">
+                  {gerando ? 'A gerar...' : 'Gerar cobranças do mês'}
+                </button>
+              )}
+            </>
           ) : undefined
         }
       />
@@ -800,8 +809,8 @@ export default function Pagamentos() {
 
           <p className="mt-2 text-xs text-ink-faint">
             {filtradas.length} registo(s) · {kpis.pagos} pago(s) · {kpis.pendentes} pendente(s) ·{' '}
-            <Link to="/admin/cursos" className="text-accent hover:text-accent-strong">
-              configurar valores por curso
+            <Link to="/admin/configuracoes" className="text-accent hover:text-accent-strong">
+              configurar preçário e cobranças
             </Link>
           </p>
 
@@ -863,6 +872,10 @@ export default function Pagamentos() {
       )}
 
       {modal && <PagamentoModal pagamento={modal} onClose={() => setModal(null)} onDone={() => void reload()} />}
+
+      {relatorioAberto && (
+        <RelatorioMensalModal mes={mes.slice(0, 7)} onClose={() => setRelatorioAberto(false)} />
+      )}
     </>
   )
 }

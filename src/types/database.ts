@@ -221,7 +221,7 @@ export interface Pagamento {
   alunos_matriculados?: {
     numero_estudante: string
     inscricoes?: { nome_completo: string } | null
-    turmas?: { nome_turma: string; turno: Turno } | null
+    turmas?: { nome_turma: string; turno: Turno; curso_id?: string; cursos?: { nome: string } | null } | null
   } | null
 }
 
@@ -234,9 +234,13 @@ export interface Cobranca {
   nome: string
   descricao: string | null
   valor: number
+  /** Curso a que a taxa se destina (027). null = todos os cursos. */
+  curso_id: string | null
   ativo: boolean
   created_at: string
   updated_at: string
+  // relações opcionais (joins)
+  cursos?: { nome: string; codigo: string } | null
 }
 
 export interface CobrancaAluno {

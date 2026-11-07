@@ -160,6 +160,35 @@ export const ESQUEMA = `
     updated_at       timestamptz not null default now()
   );
 
+  -- Espelha a 005 (mensalidades por curso e pagamentos por aluno/mês). A 027
+  -- passa a aceitar mensalidade 0 e acrescenta-lhe a contribuição única.
+  create table public.config_pagamentos (
+    id                uuid primary key default gen_random_uuid(),
+    curso_id          uuid not null references public.cursos(id) on delete cascade,
+    ano_lectivo       integer not null default extract(year from now())::int,
+    valor_mensalidade numeric(12,2) not null check (valor_mensalidade >= 0),
+    dia_limite        integer not null default 5 check (dia_limite between 1 and 28),
+    created_at        timestamptz not null default now(),
+    updated_at        timestamptz not null default now(),
+    unique (curso_id, ano_lectivo)
+  );
+
+  create table public.pagamentos (
+    id              uuid primary key default gen_random_uuid(),
+    aluno_id        uuid not null references public.alunos_matriculados(id) on delete cascade,
+    mes_referencia  date not null,
+    valor           numeric(12,2) not null check (valor >= 0),
+    data_pagamento  date,
+    metodo          text check (metodo in ('numerario', 'mpesa', 'emola', 'transferencia', 'outro')),
+    referencia      text,
+    estado          text not null default 'pendente' check (estado in ('pendente', 'pago', 'isento', 'cancelado')),
+    observacoes     text,
+    criado_por      uuid references auth.users(id) on delete set null,
+    created_at      timestamptz not null default now(),
+    updated_at      timestamptz not null default now(),
+    unique (aluno_id, mes_referencia)
+  );
+
   create type public.estado_item_pos as enum ('pendente', 'emitido', 'entregue');
 
   -- Espelha a 010 (certificado/faixa por aluno). A 021 acrescenta-lhe a data do

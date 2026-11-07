@@ -6,3 +6,4 @@ dist
 .freebuff/
 vite-dev.log
 tsconfig.tsbuildinfo
+/freebuff-sites-build/

@@ -10,6 +10,7 @@
 
 import { supabase } from './supabase'
 import { showError, showSuccess } from './alerts'
+import type { Inscricao, Turma } from '../types/database'
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -264,5 +265,203 @@ export async function validarDocumento(documentoId: string, validado: boolean): 
     const msg = mensagemErro(e, 'Erro inesperado ao validar documento.')
     showError(msg)
     return { ok: false, erro: msg }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Extra: validação em massa — aprovar e alocar todas de uma só vez
+// ---------------------------------------------------------------------------
+
+/** Item do resumo da validação em massa (nº e nome da candidatura). */
+export interface ItemMassa {
+  numero: string
+  nome: string
+}
+
+export interface ResumoValidacaoMassa {
+  /** Inscrições encontradas para processar nesta ronda. */
+  total: number
+  /** Aprovadas e matriculadas com sucesso nesta ronda. */
+  alocadas: number
+  /** Documentos que ficaram marcados como validados. */
+  docsValidados: number
+  /** Sem turma do turno pretendido com vagas — ficaram como estavam. */
+  semTurma: ItemMassa[]
+  /** Falharam na BD — a aprovação (se feita) foi revertida. */
+  comErro: (ItemMassa & { erro: string })[]
+}
+
+export type ResultadoMassa =
+  | { estado: 'ok'; resumo: ResumoValidacaoMassa }
+  | { estado: 'cancelado' }
+  | { estado: 'erro'; erro: string }
+
+/** Tamanho da página ao varrer listas em massa (limite do PostgREST). */
+const LIMITE_PAGINA = 1000
+
+/** Ids de inscrição que já têm matrícula (consulta em blocos de 200). */
+async function inscricoesMatriculadas(ids: string[]): Promise<Set<string>> {
+  const conjunto = new Set<string>()
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data, error } = await supabase
+      .from('alunos_matriculados')
+      .select('inscricao_id')
+      .in('inscricao_id', ids.slice(i, i + 200))
+    if (error) throw new Error(mensagemErro(error, 'Não foi possível verificar as matrículas existentes.'))
+    for (const linha of data ?? []) {
+      if (linha.inscricao_id) conjunto.add(linha.inscricao_id)
+    }
+  }
+  return conjunto
+}
+
+/** Todas as inscrições pendentes ou aprovadas ainda sem matrícula, por ordem cronológica. */
+async function carregarInscricoesPorValidar(): Promise<Inscricao[]> {
+  const lista: Inscricao[] = []
+  for (let inicio = 0; ; inicio += LIMITE_PAGINA) {
+    const { data, error } = await supabase
+      .from('inscricoes')
+      .select('*')
+      .in('estado', ['pendente', 'aprovado'])
+      .order('created_at', { ascending: true })
+      .range(inicio, inicio + LIMITE_PAGINA - 1)
+    if (error) throw new Error(mensagemErro(error, 'Não foi possível carregar as inscrições.'))
+    lista.push(...((data ?? []) as Inscricao[]))
+    if (!data || data.length < LIMITE_PAGINA) break
+  }
+
+  const idsAprovadas = lista.filter((i) => i.estado === 'aprovado').map((i) => i.id)
+  const matriculadas = await inscricoesMatriculadas(idsAprovadas)
+  return lista.filter((i) => !matriculadas.has(i.id))
+}
+
+/** Turmas por ano lectivo desc (prefere-se a mais recente). */
+async function carregarTurmas(): Promise<Turma[]> {
+  const { data, error } = await supabase
+    .from('turmas')
+    .select('*')
+    .order('ano_lectivo', { ascending: false })
+  if (error) throw new Error(mensagemErro(error, 'Não foi possível carregar as turmas.'))
+  return (data ?? []) as Turma[]
+}
+
+/**
+ * Primeira turma do curso da inscrição com o turno pretendido e vagas livres.
+ * `turmas` vem ordenada por ano lectivo desc, por isso a mais recente fica
+ * primeira. `vagas` tem em conta as alocações já feitas nesta ronda.
+ */
+function escolherTurma(turmas: Turma[], inscricao: Inscricao, vagas: Map<string, number>): Turma | null {
+  return (
+    turmas.find(
+      (t) =>
+        t.curso_id === inscricao.curso_id &&
+        t.turno === inscricao.turno_pretendido &&
+        (vagas.get(t.id) ?? 0) > 0,
+    ) ?? null
+  )
+}
+
+/** Marca como validados todos os documentos ainda pendentes da inscrição. */
+async function validarDocumentosPendentes(inscricaoId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from('documentos_inscricao')
+    .update({ estado_validacao: true })
+    .eq('inscricao_id', inscricaoId)
+    .eq('estado_validacao', false)
+    .select('id')
+  if (error) throw new Error(mensagemErro(error, 'Não foi possível validar os documentos.'))
+  return data?.length ?? 0
+}
+
+/**
+ * Valida e matricula TODAS as inscrições pendentes — mais as aprovadas ainda
+ * sem turma — num só clique:
+ *  1. marca os documentos pendentes como validados;
+ *  2. aprova a inscrição (trigger 003 já não bloqueia);
+ *  3. aloca o candidato na primeira turma do seu curso com o turno pretendido
+ *     e vagas, via RPC `matricular_aluno` (transacional, com lock de vagas).
+ *
+ * Sem turma disponível ou falha na BD: a inscrição fica como estava (a
+ * aprovação é revertida) e é listada no resumo. `confirmar` é chamado antes
+ * de escrever qualquer coisa na BD.
+ */
+export async function validarTodasInscricoes(opcoes: {
+  confirmar: (contagens: { pendentes: number; aprovadas: number }) => Promise<boolean>
+  onProgresso?: (feitas: number, total: number) => void
+}): Promise<ResultadoMassa> {
+  try {
+    const alvo = await carregarInscricoesPorValidar()
+    const resumo: ResumoValidacaoMassa = {
+      total: alvo.length,
+      alocadas: 0,
+      docsValidados: 0,
+      semTurma: [],
+      comErro: [],
+    }
+    if (alvo.length === 0) return { estado: 'ok', resumo }
+
+    const pendentes = alvo.filter((i) => i.estado === 'pendente').length
+    const confirmado = await opcoes.confirmar({ pendentes, aprovadas: alvo.length - pendentes })
+    if (!confirmado) return { estado: 'cancelado' }
+
+    const turmas = await carregarTurmas()
+    const vagas = new Map<string, number>()
+    for (const t of turmas) vagas.set(t.id, Math.max(0, t.limite_vagas - t.vagas_preenchidas))
+
+    let feitas = 0
+    for (const inscricao of alvo) {
+      let aprovouAgora = false
+      try {
+        if (inscricao.estado === 'pendente') {
+          resumo.docsValidados += await validarDocumentosPendentes(inscricao.id)
+        }
+
+        const turma = escolherTurma(turmas, inscricao, vagas)
+        if (!turma) {
+          resumo.semTurma.push({ numero: inscricao.numero_inscricao, nome: inscricao.nome_completo })
+          continue
+        }
+
+        if (inscricao.estado === 'pendente') {
+          const { error } = await supabase
+            .from('inscricoes')
+            .update({ estado: 'aprovado', motivo_rejeicao: null })
+            .eq('id', inscricao.id)
+          if (error) throw new Error(mensagemErro(error, 'Não foi possível aprovar a inscrição.'))
+          aprovouAgora = true
+        }
+
+        const { data, error } = await supabase.rpc('matricular_aluno', {
+          p_inscricao_id: inscricao.id,
+          p_turma_id: turma.id,
+        })
+        if (error) throw new Error(mensagemErro(error, 'A matrícula falhou.'))
+
+        const r = (Array.isArray(data) ? data[0] : data) as
+          | { sucesso: boolean; numero_estudante: string | null; mensagem: string }
+          | undefined
+        if (!r?.sucesso) throw new Error(r?.mensagem ?? 'A matrícula foi recusada pelo servidor.')
+
+        vagas.set(turma.id, (vagas.get(turma.id) ?? 1) - 1)
+        resumo.alocadas++
+      } catch (e) {
+        // Não deixar "aprovada sem turma": devolve a inscrição ao estado anterior.
+        if (aprovouAgora) {
+          await supabase.from('inscricoes').update({ estado: 'pendente' }).eq('id', inscricao.id)
+        }
+        resumo.comErro.push({
+          numero: inscricao.numero_inscricao,
+          nome: inscricao.nome_completo,
+          erro: mensagemErro(e, 'Erro inesperado ao processar a inscrição.'),
+        })
+      } finally {
+        feitas++
+        opcoes.onProgresso?.(feitas, alvo.length)
+      }
+    }
+
+    return { estado: 'ok', resumo }
+  } catch (e) {
+    return { estado: 'erro', erro: mensagemErro(e, 'Erro inesperado na validação em massa.') }
   }
 }

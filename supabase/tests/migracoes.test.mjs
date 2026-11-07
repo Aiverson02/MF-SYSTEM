@@ -37,6 +37,7 @@ const FICHEIROS = [
   '024_inscricao_sem_bi_e_data_nascimento.sql',
   '025_apagar_utilizador.sql',
   '026_cobrancas_configuraveis.sql',
+  '027_precario_e_contribuicoes_por_curso.sql',
 ]
 
 // ---------------------------------------------------------------- ferramentas
@@ -824,6 +825,106 @@ verificar('026: RPC tem search_path fixo',
     select coalesce(array_to_string(proconfig, ','), '') as o
       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.proname = 'aplicar_cobranca'
+  `)).rows[0]?.o ?? ''))
+
+// ===========================================================================
+grupo('027 — contribuições e preçário por curso')
+
+// O catálogo passa a poder apontar a um curso; NULL = todos os cursos.
+verificar('027: cobranças têm coluna curso_id',
+  (await db.query(`
+    select count(*)::int as n from information_schema.columns
+     where table_schema = 'public' and table_name = 'cobrancas' and column_name = 'curso_id'
+  `)).rows[0].n === 1)
+
+const cbCursoA = 'cb000000-0000-0000-0000-000000000027'
+await como(staff, `
+  insert into public.cobrancas (id, nome, valor, curso_id) values
+    ('${cbCursoA}', 'Material do curso A', 300, '${cA}')
+`)
+
+// "Aplicar a todos os activos" com curso só atinge alunos desse curso.
+const activosCursoA = (await db.query(`
+  select count(*)::int as n
+    from public.alunos_matriculados a join public.turmas t on t.id = a.turma_id
+   where a.estado_aluno = 'ativo' and t.curso_id = '${cA}'
+`)).rows[0].n
+const rCursoA = (await como(staff, `select * from public.aplicar_cobranca('${cbCursoA}', null, true)`))[0]
+verificar('027: aplicar a todos os activos respeita o curso da cobrança',
+  rCursoA?.aplicados === activosCursoA && /Material do curso A/.test(rCursoA?.mensagem ?? ''),
+  `${rCursoA?.aplicados} de ${activosCursoA}`)
+
+const foraDoCurso027 = (await db.query(`
+  select count(*)::int as n
+    from public.cobrancas_alunos ca
+    join public.alunos_matriculados a on a.id = ca.aluno_id
+    join public.turmas t on t.id = a.turma_id
+   where ca.cobranca_id = '${cbCursoA}' and t.curso_id <> '${cA}'
+`)).rows[0].n
+verificar('027: nenhuma dívida criada fora do curso', foraDoCurso027 === 0, String(foraDoCurso027))
+
+// Escolher um aluno de outro curso explicitamente também é filtrado.
+const cbCursoB = 'cb000000-0000-0000-0000-000000000028'
+await como(staff, `
+  insert into public.cobrancas (id, nome, valor, curso_id) values
+    ('${cbCursoB}', 'Material do curso B', 200, '${cB}')
+`)
+const rAlunoErrado = (await como(staff,
+  `select * from public.aplicar_cobranca('${cbCursoB}', array['${a1}']::uuid[], false)`))[0]
+verificar('027: aluno de outro curso é ignorado',
+  rAlunoErrado?.aplicados === 0 && /não são do curso/.test(rAlunoErrado?.mensagem ?? ''), JSON.stringify(rAlunoErrado))
+
+// Cobrança geral (curso_id NULL) não deve falar de curso nenhum na mensagem:
+// format('%s', null) devolve '' e a mensagem antiga dizia 'do curso ""'.
+const cbGeral = 'cb000000-0000-0000-0000-000000000029'
+await como(staff, `
+  insert into public.cobrancas (id, nome, valor) values
+    ('${cbGeral}', 'Taxa de inscrição geral', 150)
+`)
+const rGeral = (await como(staff, `select * from public.aplicar_cobranca('${cbGeral}', null, true)`))[0]
+verificar('027: cobrança sem curso não inventa nome de curso',
+  !/do curso/.test(rGeral?.mensagem ?? ''), rGeral?.mensagem)
+
+// Preçário do curso A (só mensalidade) para um mês novo.
+await como(staff, `
+  insert into public.config_pagamentos (curso_id, ano_lectivo, valor_mensalidade, dia_limite)
+  values ('${cA}', 2027, 1200, 10)
+`)
+// `numeric` chega como string no PGlite (precisão) — comparar como número.
+const prec027 = (await db.query(`
+  select valor_mensalidade, dia_limite from public.config_pagamentos
+   where curso_id = '${cA}' and ano_lectivo = 2027
+`)).rows[0]
+verificar('027: preçário grava mensalidade por curso/ano',
+  Number(prec027?.valor_mensalidade) === 1200 && prec027?.dia_limite === 10, JSON.stringify(prec027))
+
+const rGerar027 = (await como(staff, `select * from public.gerar_cobrancas_mes('2027-03-01')`))[0]
+verificar('027: gerar cobranças usa o preçário do curso',
+  rGerar027?.gerados === activosCursoA, JSON.stringify(rGerar027))
+verificar('027: a mensagem avisa quando falta preçário',
+  /preçário/i.test(rGerar027?.mensagem ?? ''), rGerar027?.mensagem)
+verificar('027: mensalidades geradas só para o curso com preçário',
+  (await db.query(`
+    select count(*)::int as n
+      from public.pagamentos p
+      join public.alunos_matriculados a on a.id = p.aluno_id
+      join public.turmas t on t.id = a.turma_id
+     where p.mes_referencia = '2027-03-01' and t.curso_id <> '${cA}'
+  `)).rows[0].n === 0)
+verificar('027: mensalidade gerada com o valor do preçário',
+  Number((await db.query(`
+    select valor from public.pagamentos where mes_referencia = '2027-03-01' limit 1
+  `)).rows[0]?.valor) === 1200)
+
+verificar('027: preçário é escrevível por authenticated (RLS restringe a admin)',
+  (await db.query(`select has_table_privilege('authenticated', 'public.config_pagamentos', 'INSERT') as ok`)).rows[0].ok === true)
+verificar('027: anon não escreve no preçário',
+  (await db.query(`select has_table_privilege('anon', 'public.config_pagamentos', 'INSERT') as ok`)).rows[0].ok === false)
+verificar('027: RPC gerar_cobrancas_mes mantém search_path fixo',
+  /search_path/.test((await db.query(`
+    select coalesce(array_to_string(proconfig, ','), '') as o
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = 'gerar_cobrancas_mes'
   `)).rows[0]?.o ?? ''))
 
 // ===========================================================================
