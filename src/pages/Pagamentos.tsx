@@ -11,7 +11,6 @@ import { createPortal } from 'react-dom'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { imprimirRecibo, imprimirReciboCobranca, imprimirReciboPos } from '../lib/recibo'
 import { useFinancas } from '../hooks/useFinancas'
-import { useIsAdmin } from '../hooks/usePerfil'
 import RelatorioMensalModal from '../components/RelatorioMensalModal'
 
 /** 'YYYY-MM-01' para o mês actual */
@@ -495,7 +494,6 @@ function SecaoCobrancasAlunos() {
 }
 
 export default function Pagamentos() {
-  const isAdmin = useIsAdmin()
   const { desbloqueado, erro: erroGate, aValidar, desbloquear } = useFinancas()
   const [mes, setMes] = useState(mesActual())
   const [estadoFiltro, setEstadoFiltro] = useState<'todos' | EstadoPagamento>('todos')
@@ -626,11 +624,11 @@ export default function Pagamentos() {
               <button onClick={() => setRelatorioAberto(true)} className="btn-secondary">
                 Relatório do mês
               </button>
-              {isAdmin && (
-                <button onClick={() => void gerarCobrancas()} disabled={gerando} className="btn-primary">
-                  {gerando ? 'A gerar...' : 'Gerar cobranças do mês'}
-                </button>
-              )}
+              {/* A RPC `gerar_cobrancas_mes` autoriza staff (admin e secretaria),
+                  por isso a UI não pode esconder o botão a quem pode usá-lo. */}
+              <button onClick={() => void gerarCobrancas()} disabled={gerando} className="btn-primary">
+                {gerando ? 'A gerar...' : 'Gerar cobranças do mês'}
+              </button>
             </>
           ) : undefined
         }

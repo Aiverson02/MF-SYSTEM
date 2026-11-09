@@ -16,6 +16,7 @@ type Filtro = 'todos' | ItemPosConclusao | 'por_pagar'
 
 export default function PosConclusaoPage() {
   const [filtro, setFiltro] = useState<Filtro>('todos')
+  const [aGerar, setAGerar] = useState(false)
 
   const fetcher = useCallback(async () => {
     const { data, error } = await supabase
@@ -101,11 +102,41 @@ export default function PosConclusaoPage() {
     void reload()
   }
 
+  /**
+   * Cobrança automática: lança em massa o certificado e a faixa que faltem aos
+   * alunos já concluídos (com os valores de Configurações). O servidor ignora
+   * quem já tem a linha, por isso repetir a operação não duplica nada.
+   */
+  const gerarCobrancas = async () => {
+    const ok = await confirmarAcao({
+      title: 'Gerar cobranças automáticas',
+      message:
+        'Lançar o certificado e a faixa em falta para todos os alunos concluídos, com os valores definidos em Configurações?\n\nQuem já tem a cobrança registada não é alterado.',
+      confirmLabel: 'Gerar',
+    })
+    if (!ok) return
+    setAGerar(true)
+    const { data, error: err } = await supabase.rpc('gerar_cobrancas_pos_conclusao')
+    setAGerar(false)
+    if (err) {
+      pushToast(err.message, 'erro')
+      return
+    }
+    const r = (data as { criados: number; mensagem: string }[] | null)?.[0]
+    showSuccess(r?.mensagem ?? 'Cobranças de pós-conclusão geradas.')
+    void reload()
+  }
+
   return (
     <>
       <PageHeader
         title="Pós-Conclusão"
         subtitle="Certificados e faixas de graduação — alocados automaticamente quando um curso é concluído"
+        actions={
+          <button onClick={() => void gerarCobrancas()} disabled={aGerar} className="btn-primary">
+            {aGerar ? 'A gerar...' : 'Gerar cobranças automáticas'}
+          </button>
+        }
       />
 
       {/* Resumo */}
@@ -269,7 +300,8 @@ export default function PosConclusaoPage() {
 
       <p className="mt-2 text-xs text-ink-faint">
         O valor do certificado e da faixa é definido em Configurações. O sistema aloca automaticamente os itens quando
-        uma matrícula é marcada como concluída.
+        uma matrícula é marcada como concluída; <strong>Gerar cobranças automáticas</strong> recupera quem já estava
+        concluído e ficou sem a cobrança.
       </p>
     </>
   )

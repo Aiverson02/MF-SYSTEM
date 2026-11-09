@@ -5,8 +5,9 @@
  * inscrição decidida pela sessão), 021 (data do pagamento do certificado e da
  * faixa), 022 (semente do catálogo de cursos), 023 (limite de 3 inscrições
  * activas por aluno), 024 (inscrição sem BI e sem data de nascimento, com
- * identidade por nome+celular), 025 (apagar utilizador, só admin) e 026
- * (cobranças configuráveis: catálogo + aplicação a alunos).
+ * identidade por nome+celular), 025 (apagar utilizador, só admin), 026
+ * (cobranças configuráveis: catálogo + aplicação a alunos), 027 (preçário e
+ * contribuições por curso) e 028 (cobrança automática de pós-conclusão).
  *
  * Correm num Postgres real embutido — sem Docker, sem internet e sem tocar no
  * projecto Supabase de produção:
@@ -38,6 +39,7 @@ const FICHEIROS = [
   '025_apagar_utilizador.sql',
   '026_cobrancas_configuraveis.sql',
   '027_precario_e_contribuicoes_por_curso.sql',
+  '028_cobrancas_pos_conclusao_automaticas.sql',
 ]
 
 // ---------------------------------------------------------------- ferramentas
@@ -925,6 +927,54 @@ verificar('027: RPC gerar_cobrancas_mes mantém search_path fixo',
     select coalesce(array_to_string(proconfig, ','), '') as o
       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.proname = 'gerar_cobrancas_mes'
+  `)).rows[0]?.o ?? ''))
+
+// ===========================================================================
+grupo('028 — cobrança automática de pós-conclusão')
+
+// Cenário: aluno concluído sem nenhuma linha de pós-conclusão (o trigger só
+// lança no momento da mudança de estado — quem já estava concluído escapava).
+await como(staff, `update public.alunos_matriculados set estado_aluno = 'concluido' where id = '${a3}'`)
+await como(staff, `delete from public.pos_conclusao where aluno_id = '${a3}'`)
+
+const r28 = (await como(staff, `select * from public.gerar_cobrancas_pos_conclusao()`))[0]
+verificar('028: staff gera a cobrança automática', r28?.criados >= 2, JSON.stringify(r28))
+
+const linhasA3 = (await db.query(`
+  select item, valor from public.pos_conclusao where aluno_id = '${a3}' order by item
+`)).rows
+verificar('028: aluno concluído fica com certificado e faixa',
+  linhasA3.length === 2 && linhasA3.some((l) => l.item === 'certificado') && linhasA3.some((l) => l.item === 'faixa'),
+  JSON.stringify(linhasA3))
+verificar('028: valores vêm da configuração da instituição',
+  linhasA3.every((l) => Number(l.valor) > 0), JSON.stringify(linhasA3))
+
+const r28b = (await como(staff, `select * from public.gerar_cobrancas_pos_conclusao()`))[0]
+verificar('028: repetir a operação não duplica cobranças', r28b?.criados === 0, JSON.stringify(r28b))
+
+// A operação nunca toca em dívidas já lançadas (valor/pago ficam como estão).
+await como(staff, `
+  update public.pos_conclusao set pago = true, valor = 999
+   where aluno_id = '${a3}' and item = 'certificado'
+`)
+await como(staff, `delete from public.pos_conclusao where aluno_id = '${a3}' and item = 'faixa'`)
+const r28c = (await como(staff, `select * from public.gerar_cobrancas_pos_conclusao()`))[0]
+const certA3 = (await db.query(`
+  select pago, valor from public.pos_conclusao where aluno_id = '${a3}' and item = 'certificado'
+`)).rows[0]
+verificar('028: só repõe o que falta, sem alterar o que já existe',
+  r28c?.criados === 1 && Number(certA3?.valor) === 999 && certA3?.pago === true,
+  `${JSON.stringify(r28c)} ${JSON.stringify(certA3)}`)
+
+verificar('028: anon não executa a RPC',
+  (await db.query(`select has_function_privilege('anon', 'public.gerar_cobrancas_pos_conclusao()', 'EXECUTE') as ok`)).rows[0].ok === false)
+verificar('028: RPC executável por authenticated (eh_staff valida no servidor)',
+  (await db.query(`select has_function_privilege('authenticated', 'public.gerar_cobrancas_pos_conclusao()', 'EXECUTE') as ok`)).rows[0].ok === true)
+verificar('028: RPC tem search_path fixo',
+  /search_path/.test((await db.query(`
+    select coalesce(array_to_string(proconfig, ','), '') as o
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = 'gerar_cobrancas_pos_conclusao'
   `)).rows[0]?.o ?? ''))
 
 // ===========================================================================

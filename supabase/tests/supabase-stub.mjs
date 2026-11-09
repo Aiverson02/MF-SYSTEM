@@ -160,6 +160,24 @@ export const ESQUEMA = `
     updated_at       timestamptz not null default now()
   );
 
+  -- Espelha a 001 + 010 (valores de certificado/faixa) e a 013 (código de
+  -- finanças legado, sem NOT NULL). A 028 lê daqui o valor das cobranças de
+  -- pós-conclusão geradas em massa.
+  create table public.config_instituicao (
+    id                integer primary key default 1,
+    nome              text not null default 'Instituição',
+    telefone          text,
+    email             text,
+    endereco          text,
+    logo_url          text,
+    codigo_financas   text default 'FIN-2026',
+    valor_certificado numeric(12,2) not null default 350,
+    valor_faixa       numeric(12,2) not null default 500,
+    updated_at        timestamptz not null default now(),
+    updated_by        uuid
+  );
+  insert into public.config_instituicao (id, nome) values (1, 'Instituição de teste');
+
   -- Espelha a 005 (mensalidades por curso e pagamentos por aluno/mês). A 027
   -- passa a aceitar mensalidade 0 e acrescenta-lhe a contribuição única.
   create table public.config_pagamentos (
