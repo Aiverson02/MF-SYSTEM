@@ -105,6 +105,8 @@ export interface PosConclusao {
   valor: number
   estado: EstadoItemPos
   pago: boolean
+  /** Forma de pagamento (migração 029) — separa físico de digital. */
+  metodo: MetodoPagamento | null
   /** Data em que foi marcado como pago (migração 021) — atribui o valor ao mês. */
   data_pagamento: string | null
   pago_por: string | null
@@ -194,6 +196,105 @@ export type MetodoPagamento = 'numerario' | 'mpesa' | 'emola' | 'transferencia' 
 
 export type EstadoPagamento = 'pendente' | 'pago' | 'isento' | 'cancelado'
 
+// ---------------------------------------------------------------------------
+// Finanças diárias (migração 029)
+// ---------------------------------------------------------------------------
+
+/** Rubrica financeira de uma receita (catálogo de cobranças + mensalidades). */
+export type CategoriaReceita =
+  | 'mensalidade'
+  | 'apoio_mensal'
+  | 'material_aula'
+  | 'exame'
+  | 'inscricao'
+  | 'avaliacao'
+  | 'touca_avental'
+  | 'certificado'
+  | 'outro'
+
+export const CATEGORIA_RECEITA_LABELS: Record<CategoriaReceita, string> = {
+  mensalidade: 'Mensalidades',
+  apoio_mensal: 'Apoio mensal',
+  material_aula: 'Apoio de aula / material',
+  exame: 'Taxa de exame',
+  inscricao: 'Taxa de inscrição',
+  avaliacao: 'Avaliações e testes',
+  touca_avental: 'Touca e avental',
+  certificado: 'Certificados e faixas',
+  outro: 'Outras receitas',
+}
+
+export type CategoriaDespesa =
+  | 'salarios'
+  | 'renda'
+  | 'material'
+  | 'manutencao'
+  | 'transporte'
+  | 'publicidade'
+  | 'servicos'
+  | 'impostos'
+  | 'outros'
+
+export const CATEGORIA_DESPESA_LABELS: Record<CategoriaDespesa, string> = {
+  salarios: 'Salários e honorários',
+  renda: 'Renda e instalações',
+  material: 'Material e consumíveis',
+  manutencao: 'Manutenção e reparações',
+  transporte: 'Transporte e combustível',
+  publicidade: 'Publicidade e divulgação',
+  servicos: 'Água, luz e internet',
+  impostos: 'Impostos e taxas',
+  outros: 'Outros',
+}
+
+export interface Despesa {
+  id: string
+  data: string
+  categoria: CategoriaDespesa
+  descricao: string
+  valor: number
+  metodo: MetodoPagamento | null
+  fornecedor: string | null
+  referencia: string | null
+  observacoes: string | null
+  anulada: boolean
+  anulada_em: string | null
+  anulada_por: string | null
+  criado_por: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface FechoDia {
+  data: string
+  total_bruto: number
+  total_despesas: number
+  total_liquido: number
+  notas: string | null
+  fechado_por: string | null
+  fechado_em: string
+}
+
+export type SentidoMovimento = 'entrada' | 'saida'
+
+export type OrigemMovimento = 'mensalidade' | 'cobranca' | 'pos_conclusao' | 'despesa'
+
+/** Linha de `vw_movimentos_financeiros` — a fonte única dos totais. */
+export interface MovimentoFinanceiro {
+  sentido: SentidoMovimento
+  origem: OrigemMovimento
+  categoria: string
+  origem_id: string
+  descricao: string
+  valor: number
+  data: string
+  metodo: MetodoPagamento | null
+  referencia: string | null
+  aluno_nome: string | null
+  aluno_numero: string | null
+  curso_nome: string | null
+}
+
 export interface ConfigPagamento {
   id: string
   curso_id: string
@@ -234,6 +335,8 @@ export interface Cobranca {
   nome: string
   descricao: string | null
   valor: number
+  /** Rubrica financeira (029) — agrupa a receita nas estatísticas. */
+  categoria: CategoriaReceita
   /** Curso a que a taxa se destina (027). null = todos os cursos. */
   curso_id: string | null
   ativo: boolean

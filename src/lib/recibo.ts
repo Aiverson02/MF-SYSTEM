@@ -4,7 +4,7 @@ import { ITEM_POS_LABELS, METODO_LABELS, mesLabel } from '../types/database'
 import { NOME_INSTITUICAO_DEFAULT } from '../hooks/useInstituicao'
 
 /** Configuração da instituição gravada em config_instituicao (com fallback). */
-async function configInstituicao(): Promise<{
+export async function configInstituicao(): Promise<{
   nome: string
   telefone: string | null
   email: string | null
@@ -34,7 +34,7 @@ const fmtMzn = (v: number) =>
  * um nome de aluno malicioso submetido no formulário público (stored XSS)
  * executaria JavaScript com acesso à sessão da secretaria.
  */
-function esc(v: unknown): string {
+export function esc(v: unknown): string {
   return String(v ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

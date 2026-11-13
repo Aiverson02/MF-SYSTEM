@@ -36,7 +36,7 @@ npm run build  # tsc -b && vite build → dist/
 ## Banco de dados (Supabase)
 
 As migrations estão em `supabase/migrations/` e devem ser aplicadas **por ordem**
-(`001` … `018`). No editor SQL do Supabase, execute cada ficheiro pela ordem dos
+(`001` … `030`). No editor SQL do Supabase, execute cada ficheiro pela ordem dos
 números. As migrations que definem a segurança e o modelo de papéis:
 
 - `013` — segurança admin/finanças: `public.eh_admin()` / `public.eh_staff()`,
@@ -55,6 +55,11 @@ números. As migrations que definem a segurança e o modelo de papéis:
   (o advisor de segurança do Supabase deixou de sinalizar a função).
 - `018` — `listar_utilizadores_staff` devolve **só** contas staff: as contas de
   formador deixaram de aparecer no painel Utilizadores com papel editável.
+- `026`–`030` — cobranças configuráveis, preçário por curso, cobrança automática
+  de pós-conclusão e **finanças diárias**: despesas, categoria financeira das
+  cobranças, forma de pagamento dos certificados, vista
+  `vw_movimentos_financeiros`, fecho do dia (`029`) e registo rápido de
+  recebimentos com a RPC `registar_recebimento` (`030`).
 
 ### Papéis e contas
 
@@ -134,6 +139,36 @@ que não está configurado.
   em logout / troca de conta / sessão expirada.
 - Escrita em configurações e preços: apenas `admin` (RLS).
 - `.env` e `.freebuff/` estão no `.gitignore`; nunca commitar credenciais.
+
+## Finanças (caixa do dia)
+
+A página **Finanças** (`/admin/financas`) é a estatística diária da secretaria e
+está protegida pelo mesmo código de finanças da página Pagamentos.
+
+- **Regra de caixa**: cada entrada conta no dia em que foi paga
+  (`data_pagamento`), não no mês de referência da mensalidade. Só pagamentos
+  `pago` contam; pendentes, isentos e cancelados ficam de fora.
+- **Registar recebimento** (no próprio caixa): mensalidade (170 MT por omissão,
+  editável para 180 ou outro valor), inscrição, apoio de aula (valor do curso),
+  taxa de avaliação e touca/avental, com o aluno que pagou. A RPC
+  `registar_recebimento` grava em `pagamentos` (mensalidade do mês) ou em
+  `cobrancas_alunos` (restantes), por isso a página Pagamentos, os recibos e a
+  estatística ficam sempre coerentes. Mensalidade já paga não é duplicada.
+- **Total bruto** = mensalidades + cobranças + certificados/faixas recebidos no
+  dia. **Despesas** = saídas activas do dia. **Total líquido** = bruto − despesas.
+- **Meios de pagamento**: numerário é físico; M-Pesa, e-Mola e transferência são
+  digitais. «Registar pago» em Pagamentos e no pós-conclusão pergunta sempre a
+  data e a forma de pagamento.
+- **Despesas** registam-se em Finanças (categoria, valor, fornecedor, factura) e
+  **anulam-se** em vez de apagar, para o histórico ficar intacto.
+- **Fecho do dia** guarda bruto, despesas, líquido, notas, autor e hora; se os
+  valores mudarem depois, o ecrã avisa.
+- **Relatório** diário ou mensal em A4 (Imprimir / Guardar PDF) com resumo,
+  rubricas, meios de pagamento, despesas, movimentos e assinaturas, mais
+  download CSV dos movimentos.
+
+As rubricas das receitas vêm do catálogo de cobranças (Configurações →
+Cobranças → Categoria financeira). Mensalidades usam sempre «Mensalidades».
 
 ## Portal dos formadores
 

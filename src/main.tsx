@@ -24,6 +24,7 @@ const FichaAluno = lazy(() => import('./pages/FichaAluno'))
 const CursosTurmas = lazy(() => import('./pages/CursosTurmas'))
 const Candidaturas = lazy(() => import('./pages/Candidaturas'))
 const Pagamentos = lazy(() => import('./pages/Pagamentos'))
+const Financas = lazy(() => import('./pages/Financas'))
 const PosConclusao = lazy(() => import('./pages/PosConclusao'))
 const Utilizadores = lazy(() => import('./pages/Utilizadores'))
 const Configuracoes = lazy(() => import('./pages/Configuracoes'))
@@ -56,6 +57,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                 <Route path="inscricoes" element={<Inscricoes />} />
                 <Route path="candidaturas" element={<Candidaturas />} />
                 <Route path="pagamentos" element={<Pagamentos />} />
+                <Route path="financas" element={<Financas />} />
                 <Route path="pos-conclusao" element={<PosConclusao />} />
                 <Route path="utilizadores" element={<Utilizadores />} />
                 <Route path="alunos" element={<Alunos />} />

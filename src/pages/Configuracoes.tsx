@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import type { Cobranca, ConfigInstituicao, ConfigPagamento, Curso } from '../types/database'
+import type { Cobranca, CategoriaReceita, ConfigInstituicao, ConfigPagamento, Curso } from '../types/database'
+import { CATEGORIA_RECEITA_LABELS } from '../types/database'
 import { useAsyncData } from '../hooks/useAsyncData'
 import { NOME_INSTITUICAO_DEFAULT } from '../hooks/useInstituicao'
 import { useEscapeKey } from '../hooks/useEscapeKey'
@@ -547,6 +548,7 @@ function CobrancaModal({
   const [nome, setNome] = useState(cobranca?.nome ?? '')
   const [descricao, setDescricao] = useState(cobranca?.descricao ?? '')
   const [cursoId, setCursoId] = useState(cobranca?.curso_id ?? '')
+  const [categoria, setCategoria] = useState<CategoriaReceita>(cobranca?.categoria ?? 'outro')
   const [valor, setValor] = useState(String(cobranca?.valor ?? ''))
   const [ativo, setAtivo] = useState(cobranca?.ativo ?? true)
   const [loading, setLoading] = useState(false)
@@ -569,6 +571,7 @@ function CobrancaModal({
       nome: nome.trim(),
       descricao: descricao.trim() || null,
       valor: v,
+      categoria,
       curso_id: cursoId || null,
       ativo,
     }
@@ -624,6 +627,23 @@ function CobrancaModal({
             </select>
             <p className="mt-1 text-xs text-ink-faint">
               Com curso definido, "Aplicar a alunos" só alcança alunos desse curso.
+            </p>
+          </div>
+          <div>
+            <label className="label-section mb-1 block">Categoria financeira</label>
+            <select
+              value={categoria}
+              onChange={(e) => setCategoria(e.target.value as CategoriaReceita)}
+              className="input w-full"
+            >
+              {(Object.keys(CATEGORIA_RECEITA_LABELS) as CategoriaReceita[]).map((c) => (
+                <option key={c} value={c}>
+                  {CATEGORIA_RECEITA_LABELS[c]}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-ink-faint">
+              Agrupa esta cobrança na estatística diária de Finanças.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -915,6 +935,7 @@ function SecaoCobrancas() {
                   <td className="px-2 py-2.5">
                     <p className="font-medium text-ink">{c.nome}</p>
                     {c.descricao && <p className="text-xs text-ink-faint">{c.descricao}</p>}
+                    <p className="text-[11px] text-ink-muted">{CATEGORIA_RECEITA_LABELS[c.categoria]}</p>
                     {c.cursos?.nome && (
                       <p className="text-[11px] font-medium text-accent-ink">Só curso: {c.cursos.nome}</p>
                     )}

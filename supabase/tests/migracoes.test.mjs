@@ -40,6 +40,8 @@ const FICHEIROS = [
   '026_cobrancas_configuraveis.sql',
   '027_precario_e_contribuicoes_por_curso.sql',
   '028_cobrancas_pos_conclusao_automaticas.sql',
+  '029_financas_diarias.sql',
+  '030_recebimentos_rapidos.sql',
 ]
 
 // ---------------------------------------------------------------- ferramentas
@@ -975,6 +977,261 @@ verificar('028: RPC tem search_path fixo',
     select coalesce(array_to_string(proconfig, ','), '') as o
       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.proname = 'gerar_cobrancas_pos_conclusao'
+  `)).rows[0]?.o ?? ''))
+
+// ===========================================================================
+grupo('029 — finanças diárias: categorias, despesas, vista e fecho')
+
+// Categorias: as linhas de teste nascem depois das migrações, por isso o
+// backfill é exercitado reexecutando a 029 (que é idempotente).
+const cbExame029 = 'cb000000-0000-0000-0000-000000000030'
+const cbMaterial029 = 'cb000000-0000-0000-0000-000000000031'
+const cbApoio029 = 'cb000000-0000-0000-0000-000000000032'
+await como(staff, `
+  insert into public.cobrancas (id, nome, valor) values
+    ('${cbExame029}', 'Exame Final 2026', 700),
+    ('${cbMaterial029}', 'Apoio de aula — material', 250),
+    ('${cbApoio029}', 'Apoio mensal', 300)
+`)
+verificar('029: cobrança sem categoria nasce como "outro"',
+  (await db.query(`select categoria from public.cobrancas where id = '${cbExame029}'`)).rows[0].categoria === 'outro')
+
+await db.exec(fs.readFileSync(path.join(MIGRACOES, '029_financas_diarias.sql'), 'utf8'))
+const cats029 = (await db.query(`
+  select id, categoria from public.cobrancas
+   where id in ('${cbExame029}','${cbMaterial029}','${cbApoio029}')
+`)).rows
+const catDe = (id) => cats029.find((c) => c.id === id)?.categoria
+verificar('029: reexecutar a migração aplica o backfill sem falhar',
+  catDe(cbExame029) === 'exame' && catDe(cbMaterial029) === 'material_aula' && catDe(cbApoio029) === 'apoio_mensal',
+  JSON.stringify(cats029.map((c) => c.categoria)))
+
+await esperaErro(staff,
+  `insert into public.cobrancas (nome, valor, categoria) values ('Categoria inválida', 1, 'nao_existe')`,
+  /cobrancas_categoria_check|check constraint/i,
+  '029: categoria fora da lista é recusada')
+
+verificar('029: pós-conclusão passa a ter forma de pagamento',
+  (await db.query(`
+    select count(*)::int as n from information_schema.columns
+     where table_schema = 'public' and table_name = 'pos_conclusao' and column_name = 'metodo'
+  `)).rows[0].n === 1)
+
+// Entrada de mensalidade paga hoje, mas referente a outro mês: conta na mesma
+// no caixa de hoje — a regra é a data do pagamento.
+const pagOutroMes = (await como(staff, `
+  insert into public.pagamentos (aluno_id, mes_referencia, valor, estado, data_pagamento, metodo)
+  values ('${a1}', '2024-01-01', 1111, 'pago', current_date, 'mpesa')
+  returning id
+`))[0].id
+verificar('029: mensalidade de outro mês entra no dia em que foi paga',
+  (await db.query(`
+    select count(*)::int as n from public.vw_movimentos_financeiros
+     where origem = 'mensalidade' and origem_id = '${pagOutroMes}' and data = current_date
+  `)).rows[0].n === 1)
+
+// Despesa do dia
+const desp029 = 'de000000-0000-0000-0000-000000000001'
+await como(staff, `
+  insert into public.despesas (id, data, categoria, descricao, valor, metodo, fornecedor, referencia)
+  values ('${desp029}', current_date, 'material', 'Fotocópias do material', 200, 'numerario', 'Papelaria Central', 'FT-001')
+`)
+verificar('029: despesa entra na vista como saída',
+  (await db.query(`
+    select valor, categoria from public.vw_movimentos_financeiros
+     where origem = 'despesa' and origem_id = '${desp029}'
+  `)).rows[0]?.categoria === 'material')
+
+// A vista tem de bater certo com as três origens pagas, ao cêntimo.
+const manual029 = (await db.query(`
+  select
+    (select coalesce(sum(valor), 0) from public.pagamentos where estado = 'pago' and data_pagamento = current_date)
+  + (select coalesce(sum(valor), 0) from public.cobrancas_alunos where estado = 'pago' and data_pagamento = current_date)
+  + (select coalesce(sum(valor), 0) from public.pos_conclusao where pago and data_pagamento = current_date) as bruto,
+    (select coalesce(sum(valor), 0) from public.despesas where not anulada and data = current_date) as despesas
+`)).rows[0]
+const vista029 = (await db.query(`
+  select
+    coalesce(sum(valor) filter (where sentido = 'entrada'), 0) as bruto,
+    coalesce(sum(valor) filter (where sentido = 'saida'), 0) as despesas,
+    count(*) filter (where sentido = 'entrada')::int as n_entradas,
+    count(*) filter (where sentido = 'saida')::int as n_saidas
+    from public.vw_movimentos_financeiros where data = current_date
+`)).rows[0]
+verificar('029: total bruto da vista = soma das origens pagas',
+  Number(vista029.bruto) === Number(manual029.bruto), `${vista029.bruto} vs ${manual029.bruto}`)
+verificar('029: total de despesas da vista = despesas activas do dia',
+  Number(vista029.despesas) === Number(manual029.despesas), `${vista029.despesas} vs ${manual029.despesas}`)
+
+const nPagos029 = (await db.query(`
+  select
+    (select count(*) from public.pagamentos where estado = 'pago' and data_pagamento = current_date)
+  + (select count(*) from public.cobrancas_alunos where estado = 'pago' and data_pagamento = current_date)
+  + (select count(*) from public.pos_conclusao where pago and data_pagamento = current_date) as n
+`)).rows[0].n
+verificar('029: pendentes, isentos e cancelados ficam fora da vista',
+  Number(vista029.n_entradas) === Number(nPagos029), `${vista029.n_entradas} vs ${nPagos029}`)
+
+await como(staff, `update public.despesas set anulada = true, anulada_em = now() where id = '${desp029}'`)
+verificar('029: despesa anulada deixa de contar para o caixa',
+  (await db.query(`
+    select count(*)::int as n from public.vw_movimentos_financeiros
+     where origem = 'despesa' and origem_id = '${desp029}'
+  `)).rows[0].n === 0)
+verificar('029: total de despesas volta a zero depois da anulação',
+  Number((await db.query(`
+    select coalesce(sum(valor), 0) as t from public.vw_movimentos_financeiros
+     where sentido = 'saida' and data = current_date
+  `)).rows[0].t) === 0)
+
+// Segurança: despesas são staff-only e não se apagam; a vista respeita a RLS.
+verificar('029: authenticated escreve despesas',
+  (await db.query(`select has_table_privilege('authenticated', 'public.despesas', 'INSERT') as ok`)).rows[0].ok === true)
+verificar('029: despesas não têm DELETE (anulam-se)',
+  (await db.query(`select has_table_privilege('authenticated', 'public.despesas', 'DELETE') as ok`)).rows[0].ok === false)
+verificar('029: anon não lê despesas nem a vista',
+  (await db.query(`
+    select has_table_privilege('anon', 'public.despesas', 'SELECT') as despesas,
+           has_table_privilege('anon', 'public.vw_movimentos_financeiros', 'SELECT') as vista
+  `)).rows[0].despesas === false &&
+  (await db.query(`select has_table_privilege('anon', 'public.vw_movimentos_financeiros', 'SELECT') as ok`)).rows[0].ok === false)
+verificar('029: authenticated lê a vista',
+  (await db.query(`select has_table_privilege('authenticated', 'public.vw_movimentos_financeiros', 'SELECT') as ok`)).rows[0].ok === true)
+verificar('029: vista mantém security_invoker',
+  /security_invoker=on/.test((await db.query(`
+    select coalesce(array_to_string(reloptions, ','), '') as o from pg_class
+     where relname = 'vw_movimentos_financeiros'
+  `)).rows[0]?.o ?? ''))
+
+// Fecho do dia: guarda a fotografia e pode ser actualizado (upsert da UI).
+await como(staff, `
+  insert into public.fechos_dia (data, total_bruto, total_despesas, total_liquido, notas)
+  values (current_date, 1500, 200, 1300, 'Conferido com a direcção')
+  on conflict (data) do update set
+    total_bruto = excluded.total_bruto,
+    total_despesas = excluded.total_despesas,
+    total_liquido = excluded.total_liquido,
+    notas = excluded.notas
+`)
+const fecho029 = (await db.query(`
+  select total_bruto, total_despesas, total_liquido, notas from public.fechos_dia where data = current_date
+`)).rows[0]
+verificar('029: fecho guarda bruto, despesas, líquido e notas',
+  Number(fecho029?.total_bruto) === 1500 && Number(fecho029?.total_liquido) === 1300 &&
+    fecho029?.notas === 'Conferido com a direcção', JSON.stringify(fecho029))
+verificar('029: anon não lê nem escreve fechos',
+  (await db.query(`select has_table_privilege('anon', 'public.fechos_dia', 'SELECT') as ok`)).rows[0].ok === false)
+
+// ===========================================================================
+grupo('030 — recebimentos rápidos a partir do caixa')
+
+await como(staff, `
+  insert into public.cobrancas (id, nome, valor, categoria)
+  values ('cb000000-0000-0000-0000-000000000033', 'Kit touca e avental', 200, 'touca_avental')
+`)
+verificar('030: categoria touca/avental é aceite',
+  (await db.query(`
+    select categoria from public.cobrancas where id = 'cb000000-0000-0000-0000-000000000033'
+  `)).rows[0].categoria === 'touca_avental')
+
+// Mensalidade: a linha pendente do mês passa a paga com o valor recebido.
+// O aluno a2 não tem mensalidade deste mês, por isso a RPC tem de actualizar
+// a linha pendente criada aqui — sem duplicar (unique aluno/mês).
+await como(staff, `
+  insert into public.pagamentos (aluno_id, mes_referencia, valor, estado)
+  values ('${a2}', date_trunc('month', current_date)::date, 150, 'pendente')
+`)
+const rMens030 = (await como(staff,
+  `select * from public.registar_recebimento('${a2}', 'mensalidade', 170, current_date, 'mpesa', 'MP-030')`))[0]
+verificar('030: mensalidade pendente é recebida',
+  rMens030?.sucesso === true && rMens030?.movimento_id !== null, JSON.stringify(rMens030))
+
+const mens030 = (await db.query(`
+  select valor, estado, metodo, data_pagamento from public.pagamentos
+   where aluno_id = '${a2}' and mes_referencia = date_trunc('month', current_date)::date
+`)).rows
+verificar('030: mensalidade guarda 170, pago, método e data (uma só linha)',
+  mens030.length === 1 && Number(mens030[0].valor) === 170 && mens030[0].estado === 'pago' &&
+    mens030[0].metodo === 'mpesa' && mens030[0].data_pagamento !== null,
+  JSON.stringify(mens030))
+
+await recusa(staff,
+  `select * from public.registar_recebimento('${a2}', 'mensalidade', 180, current_date, 'numerario', null)`,
+  [], /já está registada como paga/, '030: mensalidade já paga não é duplicada (170 → 180 é recusado)')
+
+// Inscrição: cria/reutiliza o catálogo e grava a cobrança paga do aluno.
+const rIns030 = (await como(staff,
+  `select * from public.registar_recebimento('${a4}', 'inscricao', 150, current_date, 'numerario', null)`))[0]
+verificar('030: inscrição é registada para o aluno', rIns030?.sucesso === true, JSON.stringify(rIns030))
+const ins030 = (await db.query(`
+  select ca.valor, ca.estado, c.categoria
+    from public.cobrancas_alunos ca
+    join public.cobrancas c on c.id = ca.cobranca_id
+   where ca.aluno_id = '${a4}' and c.categoria = 'inscricao'
+     and ca.data_pagamento = current_date
+`)).rows
+verificar('030: inscrição entra como cobrança paga de 150',
+  ins030.length === 1 && Number(ins030[0].valor) === 150 && ins030[0].estado === 'pago',
+  JSON.stringify(ins030))
+
+// Apoio de aula: cada curso tem o seu catálogo e o valor recebido fica na dívida.
+const rApoioA = (await como(staff,
+  `select * from public.registar_recebimento('${a1}', 'apoio_aula', 300, current_date, 'numerario', null)`))[0]
+const rApoioB = (await como(staff,
+  `select * from public.registar_recebimento('${a4}', 'apoio_aula', 250, current_date, 'emola', null)`))[0]
+verificar('030: apoio de aula é registado nos dois cursos',
+  rApoioA?.sucesso === true && rApoioB?.sucesso === true, `${JSON.stringify(rApoioA)} ${JSON.stringify(rApoioB)}`)
+
+const apoio030 = (await db.query(`
+  select c.curso_id, ca.valor
+    from public.cobrancas_alunos ca
+    join public.cobrancas c on c.id = ca.cobranca_id
+   where c.categoria = 'material_aula' and ca.data_pagamento = current_date
+     and ca.aluno_id in ('${a1}','${a4}')
+   order by ca.valor
+`)).rows
+verificar('030: apoio de aula fica com o valor recebido por curso',
+  apoio030.length === 2 && apoio030.some((l) => l.curso_id === cA && Number(l.valor) === 300) &&
+    apoio030.some((l) => l.curso_id === cB && Number(l.valor) === 250),
+  JSON.stringify(apoio030))
+
+// Touca e avental usa o catálogo existente (criado acima, geral).
+const rTouca = (await como(staff,
+  `select * from public.registar_recebimento('${a1}', 'touca_avental', 200, current_date, 'numerario', null)`))[0]
+verificar('030: touca e avental é registada', rTouca?.sucesso === true, JSON.stringify(rTouca))
+verificar('030: touca e avental aparece no caixa do dia',
+  (await db.query(`
+    select count(*)::int as n from public.vw_movimentos_financeiros
+     where categoria = 'touca_avental' and data = current_date and aluno_nome = 'Aluno Um'
+  `)).rows[0].n === 1)
+verificar('030: valores recebidos entram no bruto do dia',
+  Number((await db.query(`
+    select coalesce(sum(valor), 0) as t from public.vw_movimentos_financeiros
+     where sentido = 'entrada' and data = current_date and categoria in ('inscricao', 'touca_avental')
+  `)).rows[0].t) === 350)
+
+await recusa(staff,
+  `select * from public.registar_recebimento('${a1}', 'mensalidade', 0, current_date)`,
+  [], /maior do que zero/, '030: valor zero é recusado')
+await recusa(staff,
+  `select * from public.registar_recebimento('${a1}', 'tipo_inventado', 100, current_date)`,
+  [], /Tipo de recebimento/, '030: tipo inválido é recusado')
+await recusa(staff,
+  `select * from public.registar_recebimento('${a1}', 'inscricao', 100, current_date, 'bitcoin')`,
+  [], /Forma de pagamento/, '030: forma de pagamento inválida é recusada')
+await recusa(null,
+  `select * from public.registar_recebimento('${a1}', 'inscricao', 100, current_date)`,
+  [], /Apenas a secretaria/, '030: anónimo não regista recebimentos')
+
+verificar('030: RPC executável por authenticated',
+  (await db.query(`select has_function_privilege('authenticated', 'public.registar_recebimento(uuid,text,numeric,date,text,text)', 'EXECUTE') as ok`)).rows[0].ok === true)
+verificar('030: RPC não executável por anon',
+  (await db.query(`select has_function_privilege('anon', 'public.registar_recebimento(uuid,text,numeric,date,text,text)', 'EXECUTE') as ok`)).rows[0].ok === false)
+verificar('030: RPC tem search_path fixo',
+  /search_path/.test((await db.query(`
+    select coalesce(array_to_string(proconfig, ','), '') as o
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = 'registar_recebimento'
   `)).rows[0]?.o ?? ''))
 
 // ===========================================================================

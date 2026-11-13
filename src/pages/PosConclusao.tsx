@@ -8,6 +8,7 @@ import { confirmarAcao, showSuccess } from '../lib/alerts'
 import { pushToast } from '../components/ToastHost'
 import { format } from '../lib/format'
 import { imprimirReciboPos } from '../lib/recibo'
+import RegistarPagamentoModal from '../components/RegistarPagamentoModal'
 
 const fmtMzn = (v: number) =>
   new Intl.NumberFormat('pt-MZ', { style: 'currency', currency: 'MZN', maximumFractionDigits: 0 }).format(v)
@@ -17,6 +18,7 @@ type Filtro = 'todos' | ItemPosConclusao | 'por_pagar'
 export default function PosConclusaoPage() {
   const [filtro, setFiltro] = useState<Filtro>('todos')
   const [aGerar, setAGerar] = useState(false)
+  const [pagando, setPagando] = useState<PosConclusao | null>(null)
 
   const fetcher = useCallback(async () => {
     const { data, error } = await supabase
@@ -48,31 +50,7 @@ export default function PosConclusaoPage() {
     return base
   }, [itens, filtro])
 
-  const marcarPago = async (i: PosConclusao) => {
-    const ok = await confirmarAcao({
-      title: `Marcar ${ITEM_POS_LABELS[i.item]} como pago`,
-      message: `Confirmar pagamento de ${fmtMzn(Number(i.valor))} de ${i.alunos_matriculados?.inscricoes?.nome_completo ?? 'aluno'}?`,
-      confirmLabel: 'Confirmar',
-    })
-    if (!ok) return
-    const { error: err } = await supabase.from('pos_conclusao').update({ pago: true }).eq('id', i.id)
-    if (err) {
-      pushToast(err.message, 'erro')
-      return
-    }
-    pushToast('Pagamento registado.', 'sucesso')
-    void reload()
-    // Como nas mensalidades: emite o recibo logo após o pagamento ser aceite
-    setTimeout(
-      () =>
-        void imprimirReciboPos({
-          ...i,
-          pago: true,
-          data_pagamento: new Date().toISOString().slice(0, 10),
-        }),
-      250,
-    )
-  }
+  const marcarPago = (i: PosConclusao) => setPagando(i)
 
   const avancarEstado = async (i: PosConclusao) => {
     const destino: EstadoItemPos = i.estado === 'pendente' ? 'emitido' : 'entregue'
@@ -303,6 +281,34 @@ export default function PosConclusaoPage() {
         uma matrícula é marcada como concluída; <strong>Gerar cobranças automáticas</strong> recupera quem já estava
         concluído e ficou sem a cobrança.
       </p>
+
+      {pagando && (
+        <RegistarPagamentoModal
+          descricao={`${ITEM_POS_LABELS[pagando.item]} · ${
+            pagando.alunos_matriculados?.inscricoes?.nome_completo ?? 'Aluno'
+          }`}
+          valor={Number(pagando.valor)}
+          onClose={() => setPagando(null)}
+          onConfirmar={async (d) => {
+            const { error: err } = await supabase
+              .from('pos_conclusao')
+              .update({ pago: true, data_pagamento: d.data, metodo: d.metodo })
+              .eq('id', pagando.id)
+            if (err) throw new Error(err.message)
+            const pago: PosConclusao = {
+              ...pagando,
+              pago: true,
+              data_pagamento: d.data,
+              metodo: d.metodo,
+            }
+            setPagando(null)
+            pushToast('Pagamento registado.', 'sucesso')
+            void reload()
+            // Como nas mensalidades: emite o recibo logo após o pagamento ser aceite
+            setTimeout(() => void imprimirReciboPos(pago), 250)
+          }}
+        />
+      )}
     </>
   )
 }

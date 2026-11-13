@@ -5,13 +5,15 @@ import type { CobrancaAluno, EstadoPagamento, MetodoPagamento, Pagamento, PosCon
 import { ESTADO_PAGAMENTO_LABELS, ITEM_POS_LABELS, METODO_LABELS, mesLabel } from '../types/database'
 import { useAsyncData } from '../hooks/useAsyncData'
 import { EmptyState, ErrorMessage, LoadingBlock, PageHeader } from '../components/ui'
-import { confirmarAcao, showError, showSuccess } from '../lib/alerts'
+import { confirmarAcao, showError, showInfo, showSuccess } from '../lib/alerts'
 import { pushToast } from '../components/ToastHost'
 import { createPortal } from 'react-dom'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { imprimirRecibo, imprimirReciboCobranca, imprimirReciboPos } from '../lib/recibo'
 import { useFinancas } from '../hooks/useFinancas'
 import RelatorioMensalModal from '../components/RelatorioMensalModal'
+import GateFinancas from '../components/GateFinancas'
+import RegistarPagamentoModal from '../components/RegistarPagamentoModal'
 
 /** 'YYYY-MM-01' para o mês actual */
 const mesActual = () => {
@@ -203,57 +205,6 @@ function PagamentoModal({ pagamento, onClose, onDone }: PagamentoModalProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Gate de finanças: ecrã de desbloqueio por código
-// ---------------------------------------------------------------------------
-
-function GateFinancas({
-  onDesbloquear,
-  erro,
-  aValidar,
-}: {
-  onDesbloquear: (c: string) => void
-  erro: string | null
-  aValidar: boolean
-}) {
-  const [valor, setValor] = useState('')
-
-  const submeter = (e: React.FormEvent) => {
-    e.preventDefault()
-    onDesbloquear(valor)
-  }
-
-  return (
-    <div className="mx-auto max-w-md py-16">
-      <div className="cell p-8 text-center">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-warn-soft text-xl">🔒</div>
-        <h2 className="mt-4 font-serif text-xl font-semibold text-ink">Área de Finanças bloqueada</h2>
-        <p className="mt-2 text-sm text-ink-muted">
-          Introduza o código de acesso para visualizar e gerir os pagamentos.
-        </p>
-        <form onSubmit={submeter} className="mt-5 space-y-3">
-          <input
-            type="password"
-            className="input w-full text-center font-mono text-lg tracking-[0.3em]"
-            placeholder="••••••"
-            value={valor}
-            onChange={(e) => setValor(e.target.value)}
-            autoFocus
-            autoComplete="off"
-          />
-          {erro && <p className="text-sm text-danger">{erro}</p>}
-          <button type="submit" disabled={aValidar} className="btn-primary w-full py-2.5">
-            {aValidar ? 'A validar...' : 'Desbloquear'}
-          </button>
-        </form>
-        <p className="mt-4 text-xs text-ink-faint">
-          O código é definido pelo administrador. Contacte-o para obter acesso.
-        </p>
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Página principal
 // ---------------------------------------------------------------------------
 
@@ -277,6 +228,7 @@ function SecaoCobrancasAlunos() {
 
   const [estadoFiltro, setEstadoFiltro] = useState<'todos' | EstadoPagamento>('todos')
   const [pesquisa, setPesquisa] = useState('')
+  const [pagando, setPagando] = useState<CobrancaAluno | null>(null)
 
   const kpis = useMemo(() => {
     const pendentes = (cobrancasAlunos ?? []).filter((c) => c.estado === 'pendente')
@@ -338,6 +290,7 @@ function SecaoCobrancasAlunos() {
   }
 
   return (
+    <>
     <div className="cell mt-6">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
         <div>
@@ -441,7 +394,7 @@ function SecaoCobrancasAlunos() {
                           {c.estado === 'pendente' && (
                             <>
                               <button
-                                onClick={() => void alterarEstado(c, 'pago')}
+                                onClick={() => setPagando(c)}
                                 className="btn-primary px-2.5 py-1 text-xs"
                               >
                                 Registar pago
@@ -490,6 +443,40 @@ function SecaoCobrancasAlunos() {
         )}
       </div>
     </div>
+
+      {pagando && (
+        <RegistarPagamentoModal
+          descricao={`${pagando.alunos_matriculados?.inscricoes?.nome_completo ?? 'Aluno'} · ${
+            pagando.cobrancas?.nome ?? 'Cobrança'
+          }`}
+          valor={Number(pagando.valor)}
+          onClose={() => setPagando(null)}
+          onConfirmar={async (d) => {
+            const { error: err } = await supabase
+              .from('cobrancas_alunos')
+              .update({
+                estado: 'pago',
+                data_pagamento: d.data,
+                metodo: d.metodo,
+                referencia: d.referencia,
+              })
+              .eq('id', pagando.id)
+            if (err) throw new Error(err.message)
+            const pago: CobrancaAluno = {
+              ...pagando,
+              estado: 'pago',
+              data_pagamento: d.data,
+              metodo: d.metodo,
+              referencia: d.referencia,
+            }
+            setPagando(null)
+            pushToast('Pagamento registado.', 'sucesso')
+            void reload()
+            setTimeout(() => void imprimirReciboCobranca(pago), 250)
+          }}
+        />
+      )}
+    </>
   )
 }
 
@@ -501,6 +488,7 @@ export default function Pagamentos() {
   const [modal, setModal] = useState<Pagamento | null>(null)
   const [gerando, setGerando] = useState(false)
   const [relatorioAberto, setRelatorioAberto] = useState(false)
+  const [pagando, setPagando] = useState<Pagamento | null>(null)
 
   const fetcher = useCallback(async () => {
     const { data, error } = await supabase
@@ -532,6 +520,17 @@ export default function Pagamentos() {
   }, [mes])
 
   const { data: posPagos } = useAsyncData<PosConclusao[]>(posFetcher, [mes])
+
+  // Sem preçário do ano, `gerar_cobrancas_mes` gera zero em silêncio. O aviso
+  // persistente evita que o botão pareça avariado.
+  const precarioFetcher = useCallback(async () => {
+    const { count, error: err } = await supabase
+      .from('config_pagamentos')
+      .select('id', { count: 'exact', head: true })
+      .eq('ano_lectivo', Number(mes.slice(0, 4)))
+    return { data: count ?? 0, error: err }
+  }, [mes])
+  const { data: nPrecarios } = useAsyncData<number>(precarioFetcher, [mes])
 
   const posKpis = useMemo(() => {
     const lista = posPagos ?? []
@@ -592,24 +591,9 @@ export default function Pagamentos() {
       return
     }
     const r = (data as { gerados: number; mensagem: string }[] | null)?.[0]
-    showSuccess(r?.mensagem ?? 'Cobranças geradas.')
-    void reload()
-  }
-
-  const marcarPago = async (p: Pagamento) => {
-    const { error } = await supabase
-      .from('pagamentos')
-      .update({
-        estado: 'pago',
-        data_pagamento: new Date().toISOString().slice(0, 10),
-        metodo: 'numerario',
-      })
-      .eq('id', p.id)
-    if (error) {
-      showError(error.message)
-      return
-    }
-    pushToast('Pagamento registado. Método: numerário (edite para alterar).', 'sucesso')
+    // Zero gerados não é sucesso silencioso: a mensagem explica o que falta.
+    if (!r || r.gerados === 0) showInfo(r?.mensagem ?? 'Nenhuma cobrança foi gerada.')
+    else showSuccess(r.mensagem)
     void reload()
   }
 
@@ -639,6 +623,20 @@ export default function Pagamentos() {
         <GateFinancas erro={erroGate} aValidar={aValidar} onDesbloquear={(c) => void desbloquear(c)} />
       ) : (
       <>
+      {nPrecarios === 0 && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-warn bg-warn-soft px-4 py-2.5">
+          <p className="text-[13px] text-ink">
+            Sem preçário definido para {Number(mes.slice(0, 4))}: as cobranças deste mês não podem ser geradas.
+          </p>
+          <Link
+            to="/admin/configuracoes"
+            className="text-[12px] font-semibold text-ink underline underline-offset-2 hover:text-accent-strong"
+          >
+            Configurar preçário por curso
+          </Link>
+        </div>
+      )}
+
       {/* Selector de mês + filtros */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <input
@@ -782,7 +780,7 @@ export default function Pagamentos() {
                           <td className="px-4 py-2.5 text-right">
                             <div className="flex justify-end gap-2">
                               {p.estado === 'pendente' && (
-                                <button onClick={() => void marcarPago(p)} className="btn-primary px-2.5 py-1 text-xs">
+                                <button onClick={() => setPagando(p)} className="btn-primary px-2.5 py-1 text-xs">
                                   Registar pago
                                 </button>
                               )}
@@ -870,6 +868,39 @@ export default function Pagamentos() {
       )}
 
       {modal && <PagamentoModal pagamento={modal} onClose={() => setModal(null)} onDone={() => void reload()} />}
+
+      {pagando && (
+        <RegistarPagamentoModal
+          descricao={`${pagando.alunos_matriculados?.inscricoes?.nome_completo ?? 'Aluno'} · ${mesLabel(
+            pagando.mes_referencia,
+          )}`}
+          valor={Number(pagando.valor)}
+          onClose={() => setPagando(null)}
+          onConfirmar={async (d) => {
+            const { error: err } = await supabase
+              .from('pagamentos')
+              .update({
+                estado: 'pago',
+                data_pagamento: d.data,
+                metodo: d.metodo,
+                referencia: d.referencia,
+              })
+              .eq('id', pagando.id)
+            if (err) throw new Error(err.message)
+            const pago: Pagamento = {
+              ...pagando,
+              estado: 'pago',
+              data_pagamento: d.data,
+              metodo: d.metodo,
+              referencia: d.referencia,
+            }
+            setPagando(null)
+            pushToast('Pagamento registado.', 'sucesso')
+            void reload()
+            setTimeout(() => void imprimirRecibo(pago), 250)
+          }}
+        />
+      )}
 
       {relatorioAberto && (
         <RelatorioMensalModal mes={mes.slice(0, 7)} onClose={() => setRelatorioAberto(false)} />

@@ -23,6 +23,15 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    to: '/admin/financas',
+    label: 'Finanças',
+    icon: (
+      <svg className={iconClass} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 20.25h18M6 16.5V9m4.5 7.5V5.25m4.5 11.25v-4.5m4.5 4.5V7.5" />
+      </svg>
+    ),
+  },
+  {
     to: '/admin/inscricoes',
     label: 'Inscrições',
     icon: (
