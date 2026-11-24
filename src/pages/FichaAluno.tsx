@@ -8,6 +8,7 @@ import NotasAvaliacoes from '../components/NotasAvaliacoes'
 import HistoricoNotas from '../components/HistoricoNotas'
 import { format } from '../lib/format'
 import { showSuccess, confirmarAcao } from '../lib/alerts'
+import { rotuloEdicao, useEdicao } from '../hooks/useEdicao'
 
 type AlunoCompleto = AlunoMatriculado & {
   inscricoes?: {
@@ -20,7 +21,13 @@ type AlunoCompleto = AlunoMatriculado & {
     telefone_whatsapp: string
     curso_id: string
   } | null
-  turmas?: { nome_turma: string; turno: string; ano_lectivo: number; curso_id: string } | null
+  turmas?: {
+    nome_turma: string
+    turno: string
+    ano_lectivo: number
+    curso_id: string
+    edicao_id: string | null
+  } | null
 }
 
 const ESTADO_VARIANTS = {
@@ -32,6 +39,7 @@ const ESTADO_VARIANTS = {
 export default function FichaAluno() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { edicoes, edicao, edicaoId } = useEdicao()
 
   const [aluno, setAluno] = useState<AlunoCompleto | null>(null)
   const [loading, setLoading] = useState(true)
@@ -54,7 +62,7 @@ export default function FichaAluno() {
     const { data, error: err } = await supabase
       .from('alunos_matriculados')
       .select(
-        '*, inscricoes(nome_completo, numero_inscricao, numero_bi, data_nascimento, genero, email, telefone_whatsapp, curso_id), turmas(nome_turma, turno, ano_lectivo, curso_id)',
+        '*, inscricoes(nome_completo, numero_inscricao, numero_bi, data_nascimento, genero, email, telefone_whatsapp, curso_id), turmas(nome_turma, turno, ano_lectivo, curso_id, edicao_id)',
       )
       .eq('id', id)
       .single()
@@ -88,12 +96,22 @@ export default function FichaAluno() {
     })()
   }, [aluno])
 
+  /** Edição da ficha: a da turma do aluno; sem turma, a escolhida no cabeçalho. */
+  const edicaoTurma = aluno?.turmas?.edicao_id ?? null
+  const edicaoDaFicha = edicaoTurma ?? edicaoId
+  const rotuloDaFicha = edicoes.find((e) => e.id === edicaoTurma)
+
   const turmasDoCurso = useMemo(
     () =>
       turmas.filter(
-        (t) => aluno?.turmas?.curso_id === t.curso_id && t.vagas_preenchidas < t.limite_vagas && t.id !== aluno.turma_id,
+        (t) =>
+          aluno?.turmas?.curso_id === t.curso_id &&
+          t.vagas_preenchidas < t.limite_vagas &&
+          t.id !== aluno.turma_id &&
+          // Transferências ficam dentro da mesma edição da matrícula.
+          (!edicaoDaFicha || t.edicao_id === edicaoDaFicha),
       ),
-    [turmas, aluno],
+    [turmas, aluno, edicaoDaFicha],
   )
 
   // --- Acções ------------------------------------------------------------------
@@ -222,7 +240,15 @@ export default function FichaAluno() {
             {dado('Turno', turma ? TURNO_LABELS[turma.turno as keyof typeof TURNO_LABELS] : null)}
             {dado('Ano Lectivo', turma?.ano_lectivo?.toString())}
             {dado('Data de Matrícula', format.date(aluno.data_matricula))}
+            {dado('Edição', rotuloDaFicha ? rotuloEdicao(rotuloDaFicha) : null)}
           </div>
+
+          {edicaoTurma && edicaoId && edicaoTurma !== edicaoId && (
+            <p className="px-4 pb-3 text-xs text-warn">
+              Esta matrícula é de {rotuloDaFicha ? rotuloEdicao(rotuloDaFicha) : 'outra edição'}; o cabeçalho está
+              em {edicao ? rotuloEdicao(edicao) : 'outra edição'}.
+            </p>
+          )}
 
           {/* Acções de estado e transferência */}
           <div className="border-t border-line p-4">

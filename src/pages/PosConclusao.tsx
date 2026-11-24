@@ -9,6 +9,7 @@ import { pushToast } from '../components/ToastHost'
 import { format } from '../lib/format'
 import { imprimirReciboPos } from '../lib/recibo'
 import RegistarPagamentoModal from '../components/RegistarPagamentoModal'
+import { useEdicao } from '../hooks/useEdicao'
 
 const fmtMzn = (v: number) =>
   new Intl.NumberFormat('pt-MZ', { style: 'currency', currency: 'MZN', maximumFractionDigits: 0 }).format(v)
@@ -19,18 +20,22 @@ export default function PosConclusaoPage() {
   const [filtro, setFiltro] = useState<Filtro>('todos')
   const [aGerar, setAGerar] = useState(false)
   const [pagando, setPagando] = useState<PosConclusao | null>(null)
+  // Só os itens dos alunos da edição escolhida no cabeçalho.
+  const { edicaoId } = useEdicao()
 
   const fetcher = useCallback(async () => {
-    const { data, error } = await supabase
+    let query = supabase
       .from('pos_conclusao')
       .select(
-        '*, alunos_matriculados(numero_estudante, numero_bi, inscricoes(nome_completo), turmas(nome_turma))',
+        '*, alunos_matriculados!inner(numero_estudante, numero_bi, inscricoes(nome_completo), turmas!inner(nome_turma, edicao_id))',
       )
       .order('criado_em', { ascending: false })
+    if (edicaoId) query = query.eq('alunos_matriculados.turmas.edicao_id', edicaoId)
+    const { data, error } = await query
     return { data: (data ?? []) as PosConclusao[], error }
-  }, [])
+  }, [edicaoId])
 
-  const { data: itens, loading, error, reload } = useAsyncData<PosConclusao[]>(fetcher, [])
+  const { data: itens, loading, error, reload } = useAsyncData<PosConclusao[]>(fetcher, [edicaoId])
 
   const resumo = useMemo(() => {
     const lista = itens ?? []
@@ -89,12 +94,14 @@ export default function PosConclusaoPage() {
     const ok = await confirmarAcao({
       title: 'Gerar cobranças automáticas',
       message:
-        'Lançar o certificado e a faixa em falta para todos os alunos concluídos, com os valores definidos em Configurações?\n\nQuem já tem a cobrança registada não é alterado.',
+        'Lançar o certificado e a faixa em falta para os alunos concluídos desta edição, com os valores definidos em Configurações?\n\nQuem já tem a cobrança registada não é alterado.',
       confirmLabel: 'Gerar',
     })
     if (!ok) return
     setAGerar(true)
-    const { data, error: err } = await supabase.rpc('gerar_cobrancas_pos_conclusao')
+    const { data, error: err } = await supabase.rpc('gerar_cobrancas_pos_conclusao', {
+      p_edicao_id: edicaoId,
+    })
     setAGerar(false)
     if (err) {
       pushToast(err.message, 'erro')
