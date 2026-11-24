@@ -52,16 +52,12 @@ export default defineConfig({
               cacheableResponse: { statuses: [0, 200] },
             },
           },
-          {
-            // Tipografia offline (Google Fonts)
-            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'siga-fontes-css',
-              expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 * 365 },
-              cacheableResponse: { statuses: [0, 200] },
-            },
-          },
+          // A folha de estilos do Google Fonts fica fora do service worker: o
+          // pedido é `no-cors`, por isso a resposta que o Workbox guardaria é
+          // "opaque" — sem cabeçalhos e sem `Content-Type`. Ao servi-la do
+          // cache, o browser recusa-a (net::ERR_FAILED) e a página cai para a
+          // tipografia do sistema. O CSS é pequeno e o cache HTTP do browser
+          // trata dele; os ficheiros de fonte continuam em cache abaixo.
           {
             urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/,
             handler: 'CacheFirst',
