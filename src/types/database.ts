@@ -303,6 +303,8 @@ export interface MovimentoFinanceiro {
   aluno_nome: string | null
   aluno_numero: string | null
   curso_nome: string | null
+  /** Edição da turma do aluno (033); nulo nas despesas. */
+  edicao_id?: string | null
 }
 
 // ---------------------------------------------------------------------------

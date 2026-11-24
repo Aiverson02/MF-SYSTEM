@@ -10,6 +10,7 @@ import { Badge, EmptyState, ErrorMessage, LoadingBlock, PageHeader, Spinner } fr
 import { useAsyncData } from '../hooks/useAsyncData'
 import { confirmarAcao, showError, showSuccess } from '../lib/alerts'
 import { exportPautaCsv, type PautaLinha } from '../lib/exportCsv'
+import { useEdicao } from '../hooks/useEdicao'
 
 /**
  * Pautas & formadores de uma turma.
@@ -33,10 +34,19 @@ interface Dados {
 
 export default function Pautas() {
   const [turmaId, setTurmaId] = useState('')
+  // Só as turmas (e pautas) da edição escolhida no cabeçalho.
+  const { edicaoId } = useEdicao()
 
   const fetcher = useCallback(async () => {
+    let turmasQuery = supabase
+      .from('turmas')
+      .select('*, cursos(nome)')
+      .order('ano_lectivo', { ascending: false })
+      .order('nome_turma')
+    if (edicaoId) turmasQuery = turmasQuery.eq('edicao_id', edicaoId)
+
     const [turmas, formadores, atribuicoes] = await Promise.all([
-      supabase.from('turmas').select('*, cursos(nome)').order('ano_lectivo', { ascending: false }).order('nome_turma'),
+      turmasQuery,
       supabase.from('formadores').select('*').order('nome'),
       supabase.from('turma_formadores').select('turma_id, formador_id'),
     ])
@@ -52,9 +62,9 @@ export default function Pautas() {
       },
       error: null,
     }
-  }, [])
+  }, [edicaoId])
 
-  const { data, loading, error, reload } = useAsyncData<Dados>(fetcher, [])
+  const { data, loading, error, reload } = useAsyncData<Dados>(fetcher, [edicaoId])
 
   const turma = useMemo(() => (data?.turmas ?? []).find((t) => t.id === turmaId) ?? null, [data, turmaId])
 

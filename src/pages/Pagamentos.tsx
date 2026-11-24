@@ -14,6 +14,7 @@ import { useFinancas } from '../hooks/useFinancas'
 import RelatorioMensalModal from '../components/RelatorioMensalModal'
 import GateFinancas from '../components/GateFinancas'
 import RegistarPagamentoModal from '../components/RegistarPagamentoModal'
+import { useEdicao } from '../hooks/useEdicao'
 
 /** 'YYYY-MM-01' para o mês actual */
 const mesActual = () => {
@@ -215,16 +216,20 @@ function PagamentoModal({ pagamento, onClose, onDone }: PagamentoModalProps) {
 // ---------------------------------------------------------------------------
 
 function SecaoCobrancasAlunos() {
+  const { edicaoId } = useEdicao()
+
   const fetcher = useCallback(async () => {
-    const { data, error } = await supabase
+    let query = supabase
       .from('cobrancas_alunos')
       .select(
-        '*, cobrancas(nome, descricao), alunos_matriculados(numero_estudante, inscricoes(nome_completo), turmas(nome_turma))',
+        '*, cobrancas(nome, descricao), alunos_matriculados!inner(numero_estudante, inscricoes(nome_completo), turmas!inner(nome_turma))',
       )
       .order('created_at', { ascending: false })
+    if (edicaoId) query = query.eq('alunos_matriculados.turmas.edicao_id', edicaoId)
+    const { data, error } = await query
     return { data: (data ?? []) as CobrancaAluno[], error }
-  }, [])
-  const { data: cobrancasAlunos, loading, error, reload } = useAsyncData<CobrancaAluno[]>(fetcher, [])
+  }, [edicaoId])
+  const { data: cobrancasAlunos, loading, error, reload } = useAsyncData<CobrancaAluno[]>(fetcher, [edicaoId])
 
   const [estadoFiltro, setEstadoFiltro] = useState<'todos' | EstadoPagamento>('todos')
   const [pesquisa, setPesquisa] = useState('')
@@ -490,36 +495,43 @@ export default function Pagamentos() {
   const [relatorioAberto, setRelatorioAberto] = useState(false)
   const [pagando, setPagando] = useState<Pagamento | null>(null)
 
+  const { edicaoId } = useEdicao()
+
   const fetcher = useCallback(async () => {
-    const { data, error } = await supabase
+    let query = supabase
       .from('pagamentos')
       .select(
-        '*, alunos_matriculados(numero_estudante, inscricoes(nome_completo), turmas(nome_turma, turno))',
+        '*, alunos_matriculados!inner(numero_estudante, inscricoes(nome_completo), turmas!inner(nome_turma, turno))',
       )
       .eq('mes_referencia', mes)
       .order('created_at')
+    // Mensalidades dos alunos da edição escolhida (turma do aluno).
+    if (edicaoId) query = query.eq('alunos_matriculados.turmas.edicao_id', edicaoId)
+    const { data, error } = await query
     return { data: (data ?? []) as Pagamento[], error }
-  }, [mes])
+  }, [mes, edicaoId])
 
-  const { data: pagamentos, loading, error, reload } = useAsyncData<Pagamento[]>(fetcher, [mes])
+  const { data: pagamentos, loading, error, reload } = useAsyncData<Pagamento[]>(fetcher, [mes, edicaoId])
 
   // Certificados e faixas pagos neste mês. Vivem noutra tabela (não são
   // mensalidades, e cada aluno só tem uma mensalidade por mês), por isso não
   // entram na lista acima — mas têm de contar nos valores do mês.
   const posFetcher = useCallback(async () => {
-    const { data, error: err } = await supabase
+    let query = supabase
       .from('pos_conclusao')
       .select(
-        'id, item, valor, pago, estado, data_pagamento, criado_em, alunos_matriculados(numero_estudante, inscricoes(nome_completo), turmas(nome_turma))',
+        'id, item, valor, pago, estado, data_pagamento, criado_em, alunos_matriculados!inner(numero_estudante, inscricoes(nome_completo), turmas!inner(nome_turma))',
       )
       .eq('pago', true)
       .gte('data_pagamento', mes)
       .lt('data_pagamento', mesSeguinte(mes))
       .order('data_pagamento', { ascending: false })
+    if (edicaoId) query = query.eq('alunos_matriculados.turmas.edicao_id', edicaoId)
+    const { data, error: err } = await query
     return { data: (data ?? []) as unknown as PosConclusao[], error: err }
-  }, [mes])
+  }, [mes, edicaoId])
 
-  const { data: posPagos } = useAsyncData<PosConclusao[]>(posFetcher, [mes])
+  const { data: posPagos } = useAsyncData<PosConclusao[]>(posFetcher, [mes, edicaoId])
 
   // Sem preçário do ano, `gerar_cobrancas_mes` gera zero em silêncio. O aviso
   // persistente evita que o botão pareça avariado.

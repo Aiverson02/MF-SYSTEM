@@ -13,6 +13,7 @@ import RegistarRecebimentoModal from '../components/RegistarRecebimentoModal'
 import FechoDiaModal from '../components/FechoDiaModal'
 import RelatorioFinanceiroModal from '../components/RelatorioFinanceiroModal'
 import { BarraMeios, GraficoDias, ListaComposicao } from '../components/FinancasGraficos'
+import { useEdicao } from '../hooks/useEdicao'
 import {
   categoriaLabel,
   diaLongo,
@@ -53,6 +54,8 @@ export default function Financas() {
   const [recebimentoAberto, setRecebimentoAberto] = useState(false)
   const [fechoAberto, setFechoAberto] = useState(false)
   const [relatorioAberto, setRelatorioAberto] = useState(false)
+  // Entradas dos alunos da edição escolhida; as despesas são da instituição.
+  const { edicaoId } = useEdicao()
 
   const fetcher = useCallback(async (): Promise<{
     data: DadosFinancas | null
@@ -64,21 +67,42 @@ export default function Financas() {
     const inicioJanela = inicio14 < inicioDoMes(dia) ? inicio14 : inicioDoMes(dia)
     const fimJanela = fimDoMes(dia)
 
+    let movQuery = supabase
+      .from('vw_movimentos_financeiros')
+      .select('*')
+      .gte('data', inicioJanela)
+      .lte('data', fimJanela)
+      .order('data')
+
+    let pendMensQuery = supabase
+      .from('pagamentos')
+      .select('valor, alunos_matriculados!inner(turmas!inner(edicao_id))')
+      .eq('mes_referencia', mesReferenciaDe(dia))
+      .eq('estado', 'pendente')
+    let pendCobQuery = supabase
+      .from('cobrancas_alunos')
+      .select('valor, alunos_matriculados!inner(turmas!inner(edicao_id))')
+      .eq('estado', 'pendente')
+    let pendPosQuery = supabase
+      .from('pos_conclusao')
+      .select('valor, alunos_matriculados!inner(turmas!inner(edicao_id))')
+      .eq('pago', false)
+      .neq('estado', 'entregue')
+
+    if (edicaoId) {
+      // As despesas não pertencem a uma edição: ficam sempre na caixa.
+      movQuery = movQuery.or(`edicao_id.eq.${edicaoId},edicao_id.is.null`)
+      pendMensQuery = pendMensQuery.eq('alunos_matriculados.turmas.edicao_id', edicaoId)
+      pendCobQuery = pendCobQuery.eq('alunos_matriculados.turmas.edicao_id', edicaoId)
+      pendPosQuery = pendPosQuery.eq('alunos_matriculados.turmas.edicao_id', edicaoId)
+    }
+
     const [mov, fecho, pendMens, pendCob, pendPos] = await Promise.all([
-      supabase
-        .from('vw_movimentos_financeiros')
-        .select('*')
-        .gte('data', inicioJanela)
-        .lte('data', fimJanela)
-        .order('data'),
+      movQuery,
       supabase.from('fechos_dia').select('*').eq('data', dia).maybeSingle(),
-      supabase
-        .from('pagamentos')
-        .select('valor')
-        .eq('mes_referencia', mesReferenciaDe(dia))
-        .eq('estado', 'pendente'),
-      supabase.from('cobrancas_alunos').select('valor').eq('estado', 'pendente'),
-      supabase.from('pos_conclusao').select('valor').eq('pago', false).neq('estado', 'entregue'),
+      pendMensQuery,
+      pendCobQuery,
+      pendPosQuery,
     ])
 
     const erro = mov.error ?? fecho.error ?? pendMens.error ?? pendCob.error ?? pendPos.error
@@ -96,9 +120,9 @@ export default function Financas() {
       },
       error: null,
     }
-  }, [dia])
+  }, [dia, edicaoId])
 
-  const { data, loading, error, reload } = useAsyncData<DadosFinancas>(fetcher, [dia])
+  const { data, loading, error, reload } = useAsyncData<DadosFinancas>(fetcher, [dia, edicaoId])
 
   const doDia = useMemo(() => (data?.movimentos ?? []).filter((m) => m.data === dia), [data, dia])
   const resumo = useMemo(() => resumirMovimentos(doDia), [doDia])
