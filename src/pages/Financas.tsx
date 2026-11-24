@@ -13,7 +13,7 @@ import RegistarRecebimentoModal from '../components/RegistarRecebimentoModal'
 import FechoDiaModal from '../components/FechoDiaModal'
 import RelatorioFinanceiroModal from '../components/RelatorioFinanceiroModal'
 import { BarraMeios, GraficoDias, ListaComposicao } from '../components/FinancasGraficos'
-import { useEdicao } from '../hooks/useEdicao'
+import { rotuloEdicao, useEdicao } from '../hooks/useEdicao'
 import {
   categoriaLabel,
   diaLongo,
@@ -55,7 +55,7 @@ export default function Financas() {
   const [fechoAberto, setFechoAberto] = useState(false)
   const [relatorioAberto, setRelatorioAberto] = useState(false)
   // Entradas dos alunos da edição escolhida; as despesas são da instituição.
-  const { edicaoId } = useEdicao()
+  const { edicao, edicaoId } = useEdicao()
 
   const fetcher = useCallback(async (): Promise<{
     data: DadosFinancas | null
@@ -506,6 +506,7 @@ export default function Financas() {
           dia={dia}
           movimentos={data?.movimentos ?? []}
           fecho={fecho}
+          edicao={edicao ? rotuloEdicao(edicao) : null}
           onClose={() => setRelatorioAberto(false)}
         />
       )}

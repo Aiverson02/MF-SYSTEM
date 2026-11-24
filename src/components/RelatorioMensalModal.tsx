@@ -13,6 +13,7 @@ import {
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { Spinner } from './ui'
 import { useInstituicao } from '../hooks/useInstituicao'
+import { rotuloEdicao, useEdicao } from '../hooks/useEdicao'
 
 const fmtMzn = (v: number) =>
   new Intl.NumberFormat('pt-MZ', { style: 'currency', currency: 'MZN', maximumFractionDigits: 0 }).format(v)
@@ -76,6 +77,8 @@ const primeiroDiaDe = (mes: string) => `${mes.slice(0, 7)}-01`
 export default function RelatorioMensalModal({ mes, onClose }: { mes: string; onClose: () => void }) {
   useEscapeKey(onClose)
   const instituicao = useInstituicao()
+  // O relatório é sempre da edição escolhida no cabeçalho.
+  const { edicao, edicaoId } = useEdicao()
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [data, setData] = useState<RelatorioData | null>(null)
@@ -91,45 +94,66 @@ export default function RelatorioMensalModal({ mes, onClose }: { mes: string; on
   const carregar = useCallback(async () => {
     setLoading(true)
     setErro(null)
+    let qIns = supabase
+      .from('inscricoes')
+      .select('*, cursos(nome)')
+      .gte('created_at', `${primeiroDia}T00:00:00Z`)
+      .lt('created_at', `${seguinte}T00:00:00Z`)
+      .order('created_at')
+    let qPags = supabase
+      .from('pagamentos')
+      .select(
+        '*, alunos_matriculados!inner(numero_estudante, inscricoes(nome_completo), turmas!inner(nome_turma, curso_id, cursos(nome)))',
+      )
+      .eq('mes_referencia', primeiroDia)
+      .order('estado')
+    let qMats = supabase
+      .from('alunos_matriculados')
+      .select(
+        'numero_estudante, data_matricula, inscricoes(nome_completo), turmas!inner(nome_turma, cursos(nome))',
+      )
+      .gte('data_matricula', primeiroDia)
+      .lte('data_matricula', ultimoDia)
+      .order('data_matricula')
+    let qCobPagas = supabase
+      .from('cobrancas_alunos')
+      .select(
+        'id, valor, metodo, data_pagamento, cobrancas(nome), alunos_matriculados!inner(numero_estudante, inscricoes(nome_completo), turmas!inner(cursos(nome)))',
+      )
+      .eq('estado', 'pago')
+      .gte('data_pagamento', primeiroDia)
+      .lt('data_pagamento', seguinte)
+      .order('data_pagamento')
+    let qCobPend = supabase
+      .from('cobrancas_alunos')
+      .select('valor, alunos_matriculados!inner(turmas!inner(edicao_id))')
+      .eq('estado', 'pendente')
+    let qPos = supabase
+      .from('pos_conclusao')
+      .select(
+        'id, item, valor, data_pagamento, alunos_matriculados!inner(numero_estudante, inscricoes(nome_completo), turmas!inner(edicao_id))',
+      )
+      .eq('pago', true)
+      .gte('data_pagamento', primeiroDia)
+      .lt('data_pagamento', seguinte)
+      .order('data_pagamento')
+
+    if (edicaoId) {
+      qIns = qIns.eq('edicao_id', edicaoId)
+      qPags = qPags.eq('alunos_matriculados.turmas.edicao_id', edicaoId)
+      qMats = qMats.eq('turmas.edicao_id', edicaoId)
+      qCobPagas = qCobPagas.eq('alunos_matriculados.turmas.edicao_id', edicaoId)
+      qCobPend = qCobPend.eq('alunos_matriculados.turmas.edicao_id', edicaoId)
+      qPos = qPos.eq('alunos_matriculados.turmas.edicao_id', edicaoId)
+    }
+
     const [ins, pags, mats, cobPagas, cobPend, pos] = await Promise.all([
-      supabase
-        .from('inscricoes')
-        .select('*, cursos(nome)')
-        .gte('created_at', `${primeiroDia}T00:00:00Z`)
-        .lt('created_at', `${seguinte}T00:00:00Z`)
-        .order('created_at'),
-      supabase
-        .from('pagamentos')
-        .select(
-          '*, alunos_matriculados(numero_estudante, inscricoes(nome_completo), turmas(nome_turma, curso_id, cursos(nome)))',
-        )
-        .eq('mes_referencia', primeiroDia)
-        .order('estado'),
-      supabase
-        .from('alunos_matriculados')
-        .select('numero_estudante, data_matricula, inscricoes(nome_completo), turmas(nome_turma, cursos(nome))')
-        .gte('data_matricula', primeiroDia)
-        .lte('data_matricula', ultimoDia)
-        .order('data_matricula'),
-      supabase
-        .from('cobrancas_alunos')
-        .select(
-          'id, valor, metodo, data_pagamento, cobrancas(nome), alunos_matriculados(numero_estudante, inscricoes(nome_completo), turmas(cursos(nome)))',
-        )
-        .eq('estado', 'pago')
-        .gte('data_pagamento', primeiroDia)
-        .lt('data_pagamento', seguinte)
-        .order('data_pagamento'),
-      supabase.from('cobrancas_alunos').select('valor').eq('estado', 'pendente'),
-      supabase
-        .from('pos_conclusao')
-        .select(
-          'id, item, valor, data_pagamento, alunos_matriculados(numero_estudante, inscricoes(nome_completo))',
-        )
-        .eq('pago', true)
-        .gte('data_pagamento', primeiroDia)
-        .lt('data_pagamento', seguinte)
-        .order('data_pagamento'),
+      qIns,
+      qPags,
+      qMats,
+      qCobPagas,
+      qCobPend,
+      qPos,
     ])
 
     const erroQuery = ins.error ?? pags.error ?? mats.error ?? cobPagas.error ?? cobPend.error ?? pos.error
@@ -185,7 +209,7 @@ export default function RelatorioMensalModal({ mes, onClose }: { mes: string; on
       }),
     })
     setLoading(false)
-  }, [primeiroDia, seguinte, ultimoDia])
+  }, [primeiroDia, seguinte, ultimoDia, edicaoId])
 
   useEffect(() => {
     void carregar()
@@ -353,6 +377,7 @@ export default function RelatorioMensalModal({ mes, onClose }: { mes: string; on
         <div className="flex items-start justify-between">
           <div>
             <h2 className="font-serif text-lg font-semibold text-ink">Relatório mensal</h2>
+            {edicao && <p className="mt-1 text-xs text-ink-muted">{rotuloEdicao(edicao)}</p>}
             <p className="mt-0.5 text-[13px] text-ink-muted">
               {instituicao.nome} · {mesLabel(primeiroDia)}
             </p>

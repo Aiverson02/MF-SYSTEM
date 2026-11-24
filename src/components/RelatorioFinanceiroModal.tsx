@@ -33,11 +33,14 @@ export default function RelatorioFinanceiroModal({
   dia,
   movimentos,
   fecho,
+  edicao,
   onClose,
 }: {
   dia: string
   movimentos: MovimentoFinanceiro[]
   fecho: FechoDia | null
+  /** «Edição 2 · 2026» — os movimentos já vêm filtrados por ela. */
+  edicao?: string | null
   onClose: () => void
 }) {
   useEscapeKey(onClose)
@@ -62,6 +65,7 @@ export default function RelatorioFinanceiroModal({
       await abrirRelatorioFinanceiro({
         titulo: 'Extracto diário de caixa',
         periodo: diaLongo(dia),
+        edicao,
         movimentos: doDia,
         fecho,
       })
@@ -76,6 +80,7 @@ export default function RelatorioFinanceiroModal({
       await abrirRelatorioFinanceiro({
         titulo: 'Resumo mensal de caixa',
         periodo: mesLongo(dia),
+        edicao,
         movimentos: doMes,
         serie: serieMes,
       })
@@ -93,6 +98,7 @@ export default function RelatorioFinanceiroModal({
             <p className="mt-1 text-[13px] text-ink-muted">
               O PDF abre no diálogo de impressão — escolha «Guardar como PDF».
             </p>
+            {edicao && <p className="mt-1 text-xs text-ink-faint">{edicao}</p>}
           </div>
           <button onClick={onClose} className="btn-ghost -mr-2 -mt-1 px-2 py-1 text-lg" aria-label="Fechar">
             ×

@@ -16,6 +16,8 @@ export interface RelatorioFinanceiroArgs {
   titulo: string
   /** Período já legível (ex.: «13 de Novembro de 2026»). */
   periodo: string
+  /** «Edição 2 · 2026», quando o relatório é de uma edição. */
+  edicao?: string | null
   movimentos: MovimentoFinanceiro[]
   /** Fecho do dia, quando o relatório é diário e o dia foi fechado. */
   fecho?: FechoDia | null
@@ -363,7 +365,7 @@ export async function abrirRelatorioFinanceiro(args: RelatorioFinanceiroArgs) {
     </div>
     <div class="titulo">
       <p class="tipo">${esc(args.titulo)}</p>
-      <p class="periodo">${esc(args.periodo)}</p>
+      <p class="periodo">${esc(args.periodo)}${args.edicao ? ` · ${esc(args.edicao)}` : ''}</p>
       <p class="emitido">Emitido em ${esc(new Date().toLocaleString('pt-PT'))}</p>
     </div>
   </header>
