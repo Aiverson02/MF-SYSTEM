@@ -5,6 +5,7 @@ import { useEscapeKey } from '../hooks/useEscapeKey'
 import { showSuccess } from '../lib/alerts'
 import { METODO_LABELS, type MetodoPagamento } from '../types/database'
 import { fmtMzn, hojeIso } from '../lib/financas'
+import { rotuloEdicao, useEdicao } from '../hooks/useEdicao'
 
 const TIPOS = [
   { chave: 'mensalidade', label: 'Mensalidade' },
@@ -59,6 +60,8 @@ export default function RegistarRecebimentoModal({
   onDone: () => void
 }) {
   useEscapeKey(onClose)
+  // Recebimentos só para alunos da edição escolhida no cabeçalho.
+  const { edicao, edicaoId } = useEdicao()
   const [alunos, setAlunos] = useState<AlunoOpcao[] | null>(null)
   const [erroAlunos, setErroAlunos] = useState<string | null>(null)
   const [catalogo, setCatalogo] = useState<CobrancaCatalogo[]>([])
@@ -75,12 +78,13 @@ export default function RegistarRecebimentoModal({
   useEffect(() => {
     let vivo = true
     void (async () => {
+      let query = supabase
+        .from('alunos_matriculados')
+        .select('id, numero_estudante, inscricoes(nome_completo), turmas!inner(nome_turma, curso_id, cursos(nome))')
+        .eq('estado_aluno', 'ativo')
+      if (edicaoId) query = query.eq('turmas.edicao_id', edicaoId)
       const [resAlunos, resCat] = await Promise.all([
-        supabase
-          .from('alunos_matriculados')
-          .select('id, numero_estudante, inscricoes(nome_completo), turmas(nome_turma, curso_id, cursos(nome))')
-          .eq('estado_aluno', 'ativo')
-          .order('numero_estudante'),
+        query.order('numero_estudante'),
         supabase.from('cobrancas').select('categoria, curso_id, valor').eq('ativo', true),
       ])
       if (!vivo) return
@@ -104,7 +108,7 @@ export default function RegistarRecebimentoModal({
     return () => {
       vivo = false
     }
-  }, [])
+  }, [edicaoId])
 
   // Valor sugerido: 170 na mensalidade; nas restantes, o valor já configurado
   // no catálogo (por curso, no caso do apoio de aula).
@@ -158,6 +162,7 @@ export default function RegistarRecebimentoModal({
       p_data: data,
       p_metodo: metodo,
       p_referencia: referencia.trim() || null,
+      p_edicao_id: edicaoId,
     })
     setLoading(false)
     if (error) {
@@ -182,7 +187,7 @@ export default function RegistarRecebimentoModal({
       >
         <h2 className="font-serif text-lg font-semibold text-ink">Registar recebimento</h2>
         <p className="mt-1 text-[13px] text-ink-muted">
-          Fica guardado no caixa do dia e na conta do aluno.
+          Fica guardado no caixa do dia e na conta do aluno ({rotuloEdicao(edicao)}).
         </p>
 
         <div className="mt-4">

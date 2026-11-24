@@ -5,6 +5,7 @@ import { CATEGORIA_RECEITA_LABELS } from '../types/database'
 import { useAsyncData } from '../hooks/useAsyncData'
 import { NOME_INSTITUICAO_DEFAULT } from '../hooks/useInstituicao'
 import { useEscapeKey } from '../hooks/useEscapeKey'
+import { rotuloEdicao, useEdicao } from '../hooks/useEdicao'
 import { Badge, ErrorMessage, LoadingBlock, PageHeader, Spinner } from '../components/ui'
 import { confirmarAcao, showError, showSuccess } from '../lib/alerts'
 import AdminGate from '../components/AdminGate'
@@ -757,6 +758,8 @@ interface AlunoCobranca {
 
 function AplicarCobrancaModal({ cobranca, onClose }: { cobranca: Cobranca; onClose: () => void }) {
   useEscapeKey(onClose)
+  // Só os alunos da edição escolhida no cabeçalho entram nesta aplicação.
+  const { edicao, edicaoId } = useEdicao()
   const [modo, setModo] = useState<'todos' | 'escolher'>('todos')
   const [escolhidos, setEscolhidos] = useState<string[]>([])
   const [pesquisa, setPesquisa] = useState('')
@@ -774,6 +777,7 @@ function AplicarCobrancaModal({ cobranca, onClose }: { cobranca: Cobranca; onClo
         .select('id, numero_estudante, inscricoes(nome_completo), turmas!inner(nome_turma)')
         .eq('estado_aluno', 'ativo')
       if (cobranca.curso_id) query = query.eq('turmas.curso_id', cobranca.curso_id)
+      if (edicaoId) query = query.eq('turmas.edicao_id', edicaoId)
       const { data, error } = await query.order('numero_estudante')
       if (!vivo) return
       if (error) setErroAlunos(error.message)
@@ -782,7 +786,7 @@ function AplicarCobrancaModal({ cobranca, onClose }: { cobranca: Cobranca; onClo
     return () => {
       vivo = false
     }
-  }, [cobranca.curso_id])
+  }, [cobranca.curso_id, edicaoId])
 
   const q = pesquisa.trim().toLowerCase()
   const filtrados = (alunos ?? []).filter(
@@ -806,6 +810,7 @@ function AplicarCobrancaModal({ cobranca, onClose }: { cobranca: Cobranca; onClo
       p_cobranca_id: cobranca.id,
       p_aluno_ids: modo === 'escolher' ? escolhidos : null,
       p_todos_activos: modo === 'todos',
+      p_edicao_id: edicaoId,
     })
     setLoading(false)
     const r = (data as { aplicados: number; mensagem: string }[] | null)?.[0]
@@ -826,13 +831,14 @@ function AplicarCobrancaModal({ cobranca, onClose }: { cobranca: Cobranca; onClo
           {cobranca.curso_id && (
             <span className="block text-xs text-ink-faint">Só alunos do curso {cobranca.cursos?.nome ?? ''}</span>
           )}
+          <span className="block text-xs text-ink-faint">Alunos da {rotuloEdicao(edicao)}.</span>
         </p>
 
         <div className="mt-4 space-y-3">
           <div className="flex gap-4">
             <label className="flex items-center gap-2 text-sm text-ink">
               <input type="radio" checked={modo === 'todos'} onChange={() => setModo('todos')} />
-              Todos os alunos activos
+              Todos os alunos activos desta edição
             </label>
             <label className="flex items-center gap-2 text-sm text-ink">
               <input type="radio" checked={modo === 'escolher'} onChange={() => setModo('escolher')} />

@@ -11,10 +11,10 @@ import { createPortal } from 'react-dom'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { imprimirRecibo, imprimirReciboCobranca, imprimirReciboPos } from '../lib/recibo'
 import { useFinancas } from '../hooks/useFinancas'
+import { rotuloEdicao, useEdicao } from '../hooks/useEdicao'
 import RelatorioMensalModal from '../components/RelatorioMensalModal'
 import GateFinancas from '../components/GateFinancas'
 import RegistarPagamentoModal from '../components/RegistarPagamentoModal'
-import { useEdicao } from '../hooks/useEdicao'
 
 /** 'YYYY-MM-01' para o mês actual */
 const mesActual = () => {
@@ -495,7 +495,7 @@ export default function Pagamentos() {
   const [relatorioAberto, setRelatorioAberto] = useState(false)
   const [pagando, setPagando] = useState<Pagamento | null>(null)
 
-  const { edicaoId } = useEdicao()
+  const { edicao, edicaoId } = useEdicao()
 
   const fetcher = useCallback(async () => {
     let query = supabase
@@ -591,12 +591,12 @@ export default function Pagamentos() {
   const gerarCobrancas = async () => {
     const ok = await confirmarAcao({
       title: 'Gerar cobranças',
-      message: `Gerar cobranças de ${mesLabel(mes)} para todos os alunos activos que ainda não têm cobrança neste mês?`,
+      message: `Gerar cobranças de ${mesLabel(mes)} para os alunos activos da ${rotuloEdicao(edicao)} que ainda não têm cobrança neste mês?`,
       confirmLabel: 'Gerar',
     })
     if (!ok) return
     setGerando(true)
-    const { data, error } = await supabase.rpc('gerar_cobrancas_mes', { p_mes: mes })
+    const { data, error } = await supabase.rpc('gerar_cobrancas_mes', { p_mes: mes, p_edicao_id: edicaoId })
     setGerando(false)
     if (error) {
       showError(error.message)
