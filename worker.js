@@ -19,8 +19,10 @@ const CABECALHOS = {
     "img-src 'self' data: blob: https://*.supabase.co",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' data: https://fonts.gstatic.com",
-    "script-src 'self'",
-    "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+    // O beacon do Cloudflare é injetado pela plataforma no HTML; é o único
+    // script de terceiros autorizado.
+    "script-src 'self' https://static.cloudflareinsights.com",
+    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://cloudflareinsights.com",
     "worker-src 'self' blob:",
     "manifest-src 'self'",
   ].join('; '),
