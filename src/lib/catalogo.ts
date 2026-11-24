@@ -18,7 +18,8 @@ export const MENSALIDADE_PADRAO = 200
 export const DURACAO_PADRAO = '3 meses'
 export const NOME_PADRAO = 'Associação de Formação Profissional Moz Future'
 
-export const TURNOS: Turno[] = ['manha', 'tarde', 'pos_laboral']
+/** Turnos que a instituição abre: só manhã e tarde. */
+export const TURNOS: Turno[] = ['manha', 'tarde']
 
 export const TURNO_NOMES: Record<Turno, string> = {
   manha: 'Manhã',
@@ -193,7 +194,12 @@ async function catalogoDeReserva(): Promise<Catalogo> {
     descricao: c.descricao?.trim() ? c.descricao : null,
     mensalidade: null,
     turnos: turmas
-      .filter((t) => t.curso_id === c.id && t.ano_lectivo >= new Date().getFullYear() - 1)
+      .filter(
+        (t) =>
+          t.curso_id === c.id &&
+          t.ano_lectivo >= new Date().getFullYear() - 1 &&
+          TURNOS.includes(t.turno),
+      )
       .map((t) => ({
         turno: t.turno,
         vagas: Math.max((t.limite_vagas ?? 0) - (t.vagas_preenchidas ?? 0), 0),
@@ -245,10 +251,10 @@ export async function carregarCatalogo(): Promise<Catalogo> {
   }
 }
 
-/** Turnos a oferecer para um curso: os da edição ou os três habituais. */
+/** Turnos a oferecer para um curso: os da edição ou os dois habituais. */
 export function turnosDoCurso(curso: CursoPublico | null | undefined): TurnoPublico[] {
   if (curso && curso.turnos.length > 0) return curso.turnos
-  // Edição ainda sem turmas: oferece os três turnos, sem prometer vagas.
+  // Edição ainda sem turmas: oferece manhã e tarde, sem prometer vagas.
   return TURNOS.map((turno) => ({ turno, vagas: null }))
 }
 

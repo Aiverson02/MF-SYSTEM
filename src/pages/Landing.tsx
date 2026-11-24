@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import '../styles/landing.css'
 import {
   anoInscricoes,
@@ -174,7 +173,7 @@ export default function Landing() {
                 <span>cursos</span>
               </li>
               <li className="lp-facto">
-                <b>3</b>
+                <b>2</b>
                 <span>turnos</span>
               </li>
             </ul>
@@ -213,7 +212,7 @@ export default function Landing() {
               </div>
               <div className="lp-passo">
                 <h3 className="lp-passo-titulo">Turnos que cabem no dia</h3>
-                <p className="lp-passo-texto">Manhã, tarde ou pós-laboral, conforme as turmas abertas.</p>
+                <p className="lp-passo-texto">Manhã ou tarde, conforme as turmas abertas.</p>
               </div>
               <div className="lp-passo">
                 <h3 className="lp-passo-titulo">Até 3 cursos</h3>
@@ -395,9 +394,6 @@ export default function Landing() {
         <div className="lp-envolver lp-rodape-in">
           <p style={{ margin: 0 }}>
             Associação de Formação Profissional Moz Future · Edição {edicao} · {edicaoAno}
-          </p>
-          <p style={{ margin: 0 }}>
-            <Link to="/login">Área reservada</Link>
           </p>
         </div>
       </footer>
