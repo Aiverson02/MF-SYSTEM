@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import '../styles/landing.css'
 import {
+  anoInscricoes,
   carregarCatalogo,
   duracaoBase,
+  edicaoNaData,
   mensalidadeDe,
   precoBase,
   type Catalogo,
@@ -19,7 +21,32 @@ import FormularioInscricao from '../components/landing/FormularioInscricao'
 
 const TITULO = 'Moz Future — Cursos de 3 meses'
 const DESCRICAO =
-  'Associação de Formação Profissional Moz Future. 14 cursos de 3 meses, 200 MT por mês. Inscreva-se online.'
+  'Associação de Formação Profissional Moz Future. Cursos de 3 meses, 200 MT por mês. Inscrições online abertas.'
+
+const MESES = [
+  'janeiro',
+  'fevereiro',
+  'março',
+  'abril',
+  'maio',
+  'junho',
+  'julho',
+  'agosto',
+  'setembro',
+  'outubro',
+  'novembro',
+  'dezembro',
+]
+
+/** "janeiro a março de 2027" — a partir das datas da edição, sem fusos. */
+function periodoDe(inicio: string | null, fim: string | null): string | null {
+  if (!inicio || !fim) return null
+  const [anoInicio, mesInicio] = inicio.split('-').map(Number)
+  const [anoFim, mesFim] = fim.split('-').map(Number)
+  if (!anoInicio || !mesInicio || !anoFim || !mesFim) return null
+  if (anoInicio === anoFim) return `${MESES[mesInicio - 1]} a ${MESES[mesFim - 1]} de ${anoFim}`
+  return `${MESES[mesInicio - 1]} de ${anoInicio} a ${MESES[mesFim - 1]} de ${anoFim}`
+}
 
 /**
  * Página pública da instituição.
@@ -48,20 +75,31 @@ export default function Landing() {
     void carregar()
   }, [carregar])
 
-  // Título e descrição próprios: a LP não é o painel.
+  // Título e descrição próprios: a LP não é o painel. O ano da edição vem do
+  // catálogo, para o anúncio acompanhar a edição que a base de dados anuncia.
   useEffect(() => {
     const tituloAnterior = document.title
     const descricao = document.querySelector('meta[name="description"]')
     const descricaoAnterior = descricao?.getAttribute('content') ?? null
+    const ano = catalogo?.edicaoAno
 
-    document.title = TITULO
-    if (descricao) descricao.setAttribute('content', DESCRICAO)
+    document.title = ano ? `Moz Future — Cursos de 3 meses · Inscrições ${ano}` : TITULO
+    if (descricao) {
+      descricao.setAttribute(
+        'content',
+        ano
+          ? `Associação de Formação Profissional Moz Future. Inscrições abertas para a edição de ${ano}: cursos de 3 meses, ${precoBase(
+              catalogo?.cursos ?? [],
+            ).toLocaleString('pt-PT')} MT por mês. Inscreva-se online.`
+          : DESCRICAO,
+      )
+    }
 
     return () => {
       document.title = tituloAnterior
       if (descricao && descricaoAnterior !== null) descricao.setAttribute('content', descricaoAnterior)
     }
-  }, [])
+  }, [catalogo])
 
   const irParaFormulario = useCallback(() => {
     document.getElementById('inscricao')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -82,16 +120,34 @@ export default function Landing() {
   const precoTabela = precoBase(cursos)
   const duracaoPadrao = duracaoBase(cursos)
   const mensalidade = cursoEscolhido ? mensalidadeDe(cursoEscolhido) : precoTabela
-  const edicao = catalogo?.edicao ?? new Date().getFullYear()
+  // Reserva coerente com a regra do servidor: a edição seguinte à que decorre.
+  const edicao = catalogo?.edicao ?? edicaoNaData(new Date()) + 1
+  const edicaoAno = catalogo?.edicaoAno ?? anoInscricoes()
+  const periodoEdicao = periodoDe(catalogo?.edicaoInicio ?? null, catalogo?.edicaoFim ?? null)
   const locais = catalogo?.locais ?? []
 
   return (
     <div className="lp" id="topo">
       <Cabecalho
         instituicao={catalogo?.instituicao ?? { nome: '', telefone: null, email: null, endereco: null, logo_url: null }}
-        edicao={edicao}
+        edicaoAno={edicaoAno}
         onInscrever={irParaFormulario}
       />
+
+      <div className="lp-aberto">
+        <div className="lp-envolver lp-aberto-in">
+          <span className="lp-selo-ponto" aria-hidden />
+          <p className="lp-aberto-texto">
+            <b>Inscrições abertas para a edição de {edicaoAno}</b>
+            <span className="lp-aberto-nota">
+              {periodoEdicao ? `Turmas de ${periodoEdicao} · Edição ${edicao}` : `Edição ${edicao}`}
+            </span>
+          </p>
+          <button type="button" className="lp-aberto-accao" onClick={irParaFormulario}>
+            Inscrever-me
+          </button>
+        </div>
+      </div>
 
       <main>
         <section className="lp-envolver lp-hero">
@@ -129,6 +185,7 @@ export default function Landing() {
             turno={turno}
             mensalidade={mensalidade}
             edicao={edicao}
+            edicaoAno={edicaoAno}
             totalCursos={cursos.length || 14}
             duracaoBase={duracaoPadrao}
             onInscrever={irParaFormulario}
@@ -309,8 +366,9 @@ export default function Landing() {
               <details className="lp-pergunta">
                 <summary>Quando começam as aulas?</summary>
                 <p>
-                  A secretaria confirma a data de início e o turno depois de validar a inscrição. A edição
-                  corrente é {edicao}.
+                  A próxima edição é a de {edicaoAno}
+                  {periodoEdicao ? ` (${periodoEdicao})` : ''}. A secretaria confirma a data de início e o turno
+                  depois de validar a inscrição.
                 </p>
               </details>
               <details className="lp-pergunta">
@@ -336,7 +394,7 @@ export default function Landing() {
       <footer className="lp-rodape">
         <div className="lp-envolver lp-rodape-in">
           <p style={{ margin: 0 }}>
-            Associação de Formação Profissional Moz Future · Edição {edicao}
+            Associação de Formação Profissional Moz Future · Edição {edicao} · {edicaoAno}
           </p>
           <p style={{ margin: 0 }}>
             <Link to="/login">Área reservada</Link>

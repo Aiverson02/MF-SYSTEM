@@ -7,6 +7,8 @@ interface Props {
   /** Mensalidade do curso escolhido ou o preço de tabela do catálogo. */
   mensalidade: number
   edicao: number
+  /** Ano da edição (ex.: 2027). */
+  edicaoAno: number | null
   /** Nº de cursos abertos — o catálogo real tem mais do que as 14 formações. */
   totalCursos: number
   /** Duração de tabela, mostrada enquanto nenhum curso está escolhido. */
@@ -25,6 +27,7 @@ export default function Talao({
   turno,
   mensalidade,
   edicao,
+  edicaoAno,
   totalCursos,
   duracaoBase,
   onInscrever,
@@ -33,7 +36,10 @@ export default function Talao({
     <aside className="lp-talao" aria-label="Resumo da inscrição">
       <div className="lp-talao-topo">
         <span className="lp-talao-titulo">Talão de inscrição</span>
-        <span className="lp-talao-edicao">Edição {edicao}</span>
+        <span className="lp-talao-edicao">
+          Edição {edicao}
+          {edicaoAno ? ` · ${edicaoAno}` : ''}
+        </span>
       </div>
 
       <p className="lp-talao-curso">{curso ? curso.nome : 'Escolha o seu curso'}</p>

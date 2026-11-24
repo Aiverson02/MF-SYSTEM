@@ -474,7 +474,11 @@ export default function FormularioInscricao({ cursos, cursoInicial, mensalidadeB
                         {turnos.map((t) => (
                           <option key={t.turno} value={t.turno}>
                             {TURNO_NOMES[t.turno]}
-                            {t.vagas > 0 ? ` — ${t.vagas} vaga(s)` : ' — sem vagas'}
+                            {t.vagas === null
+                              ? ''
+                              : t.vagas > 0
+                                ? ` — ${t.vagas} vaga(s)`
+                                : ' — sem vagas'}
                           </option>
                         ))}
                       </select>

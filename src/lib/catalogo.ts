@@ -28,8 +28,8 @@ export const TURNO_NOMES: Record<Turno, string> = {
 
 export interface TurnoPublico {
   turno: Turno
-  turma_id: string | null
-  vagas: number
+  /** null = a edição ainda não tem turmas criadas (vagas desconhecidas). */
+  vagas: number | null
 }
 
 export interface CursoPublico {
@@ -112,8 +112,7 @@ function normalizar(bruto: unknown): Catalogo | null {
       return [
         {
           turno,
-          turma_id: typeof tt.turma_id === 'string' ? tt.turma_id : null,
-          vagas: numero(tt.vagas) ?? 0,
+          vagas: tt.vagas === null || tt.vagas === undefined ? null : numero(tt.vagas) ?? 0,
         } satisfies TurnoPublico,
       ]
     })
@@ -197,7 +196,6 @@ async function catalogoDeReserva(): Promise<Catalogo> {
       .filter((t) => t.curso_id === c.id && t.ano_lectivo >= new Date().getFullYear() - 1)
       .map((t) => ({
         turno: t.turno,
-        turma_id: t.id,
         vagas: Math.max((t.limite_vagas ?? 0) - (t.vagas_preenchidas ?? 0), 0),
       })),
   }))
@@ -250,7 +248,21 @@ export async function carregarCatalogo(): Promise<Catalogo> {
 /** Turnos a oferecer para um curso: os da edição ou os três habituais. */
 export function turnosDoCurso(curso: CursoPublico | null | undefined): TurnoPublico[] {
   if (curso && curso.turnos.length > 0) return curso.turnos
-  return TURNOS.map((turno) => ({ turno, turma_id: null, vagas: 0 }))
+  // Edição ainda sem turmas: oferece os três turnos, sem prometer vagas.
+  return TURNOS.map((turno) => ({ turno, vagas: null }))
+}
+
+/**
+ * Ano da edição que aceita inscrições, calculado pela mesma regra da base de
+ * dados (036): o bloco de três meses que vai começar.
+ *
+ * Serve só de reserva enquanto o catálogo não chega — com a RPC em baixo a
+ * página anuncia a edição que o servidor anunciaria.
+ */
+export function anoInscricoes(d = new Date()): number {
+  const meses = (d.getFullYear() - INICIO_EDICOES.ano) * 12 + (d.getMonth() + 1 - INICIO_EDICOES.mes)
+  const bloco = Math.floor(meses / 3)
+  return new Date(INICIO_EDICOES.ano, INICIO_EDICOES.mes - 1 + (bloco + 1) * 3, 1).getFullYear()
 }
 
 /** Valor a mostrar: o preçário do curso ou a mensalidade praticada. */
