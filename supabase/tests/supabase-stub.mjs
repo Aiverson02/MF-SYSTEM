@@ -149,6 +149,20 @@ export const ESQUEMA = `
     updated_at        timestamptz not null default now()
   );
 
+  create type public.tipo_documento_enum as enum ('bi', 'foto_passe', 'certificado', 'comprovativo_pagamento');
+
+  -- Espelha a 001: url_ficheiro obrigatório. A 031 torna-o opcional e
+  -- acrescenta o recibo em texto, por isso a coluna tem de existir aqui.
+  create table public.documentos_inscricao (
+    id               uuid primary key default gen_random_uuid(),
+    inscricao_id     uuid not null references public.inscricoes(id) on delete cascade,
+    tipo_documento   public.tipo_documento_enum not null,
+    url_ficheiro     text not null,
+    estado_validacao boolean not null default false,
+    created_at       timestamptz not null default now(),
+    updated_at       timestamptz not null default now()
+  );
+
   create table public.alunos_matriculados (
     id               uuid primary key default gen_random_uuid(),
     inscricao_id     uuid not null unique references public.inscricoes(id) on delete cascade,

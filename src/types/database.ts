@@ -57,19 +57,25 @@ export interface Inscricao {
   telefone_whatsapp: string
   curso_id: string
   turno_pretendido: Turno
+  /** Turma da edição corrente gravada na submissão pública (031). */
+  turma_id: string | null
   estado: EstadoInscricao
   motivo_rejeicao: string | null
   origem: 'online' | 'presencial'
   created_at: string
   // relações opcionais (joins)
   cursos?: { nome: string; codigo: string } | null
+  turmas?: { nome_turma: string; turno: Turno; ano_lectivo: number } | null
 }
 
 export interface DocumentoInscricao {
   id: string
   inscricao_id: string
   tipo_documento: TipoDocumento
-  url_ficheiro: string
+  /** Ficheiro no bucket (031: opcional — o recibo pode ser texto). */
+  url_ficheiro: string | null
+  /** Recibo escrito pelo candidato (031). */
+  texto: string | null
   estado_validacao: boolean
   created_at: string
 }
@@ -293,6 +299,21 @@ export interface MovimentoFinanceiro {
   aluno_nome: string | null
   aluno_numero: string | null
   curso_nome: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Locais de atendimento (migração 031)
+// ---------------------------------------------------------------------------
+
+/** Localização mostrada no site público (Configurações → Locais). */
+export interface Local {
+  id: string
+  nome: string
+  referencia: string | null
+  ordem: number
+  ativo: boolean
+  created_at: string
+  updated_at: string
 }
 
 export interface ConfigPagamento {

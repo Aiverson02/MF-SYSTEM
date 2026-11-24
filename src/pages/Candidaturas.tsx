@@ -1,21 +1,14 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import type { DocumentoInscricao, Inscricao } from '../types/database'
-import { ESTADO_LABELS, TIPO_DOC_LABELS } from '../types/database'
+import type { DocumentoInscricao, Inscricao, TipoDocumento } from '../types/database'
+import { ESTADO_LABELS, TIPO_DOC_LABELS, TURNO_LABELS } from '../types/database'
 import { useAsyncData } from '../hooks/useAsyncData'
 import { Badge, EmptyState, ErrorMessage, LoadingBlock, PageHeader } from '../components/ui'
 import { format } from '../lib/format'
 import { pushToast } from '../components/ToastHost'
 
 type FiltroOrigem = 'online' | 'todas'
-
-interface Linha {
-  inscricao: Inscricao
-  docs: DocumentoInscricao[]
-  /** assinatura do storage para o conjunto de documentos (renovada a cada reload) */
-  docsAssinados: Map<string, string>
-}
 
 const STORAGE = 'documentos-inscricao'
 
@@ -31,14 +24,36 @@ export default function Candidaturas() {
   > => {
     return (await supabase
       .from('inscricoes')
-      .select('*, cursos(nome, codigo)')
+      .select('*, cursos(nome, codigo), turmas(nome_turma, turno, ano_lectivo)')
       .order('created_at', { ascending: false })
       .limit(500)) as { data: Inscricao[] | null; error: { message: string } | null }
   }, [])
 
   const { data: inscricoes, loading, error, reload } = useAsyncData<Inscricao[]>(fetcher, [])
 
-  const linhas = useMemo<Linha[]>(() => {
+  // Tipos de documento por inscrição — alimenta os selos BI/recibo da lista.
+  // Uma leitura só, em vez de um pedido por linha.
+  const [docsPorInscricao, setDocsPorInscricao] = useState<Record<string, TipoDocumento[]>>({})
+
+  const carregarDocs = useCallback(async () => {
+    const { data } = await supabase
+      .from('documentos_inscricao')
+      .select('inscricao_id, tipo_documento')
+      .order('created_at', { ascending: false })
+      .limit(2000)
+    if (!data) return
+    const mapa: Record<string, TipoDocumento[]> = {}
+    for (const d of data as { inscricao_id: string; tipo_documento: TipoDocumento }[]) {
+      mapa[d.inscricao_id] = [...(mapa[d.inscricao_id] ?? []), d.tipo_documento]
+    }
+    setDocsPorInscricao(mapa)
+  }, [])
+
+  useEffect(() => {
+    void carregarDocs()
+  }, [carregarDocs])
+
+  const linhas = useMemo<Inscricao[]>(() => {
     let base = inscricoes ?? []
     if (filtro === 'online') base = base.filter((i) => i.origem === 'online')
     const q = pesquisa.trim().toLowerCase()
@@ -50,31 +65,12 @@ export default function Candidaturas() {
           i.numero_inscricao.toLowerCase().includes(q),
       )
     }
-    return base.map((i) => ({ inscricao: i, docs: [], docsAssinados: new Map() }))
+    return base
   }, [inscricoes, filtro, pesquisa])
-
-  const [docsCount, setDocsCount] = useState<Record<string, number>>({})
-
-  const carregarDocs = useCallback(
-    async (ids: string[]) => {
-      if (ids.length === 0) return
-      const { data } = await supabase
-        .from('documentos_inscricao')
-        .select('*')
-        .in('inscricao_id', ids)
-      if (data) {
-        const counts: Record<string, number> = {}
-        for (const d of data as DocumentoInscricao[]) {
-          counts[d.inscricao_id] = (counts[d.inscricao_id] ?? 0) + 1
-        }
-        setDocsCount((prev) => ({ ...prev, ...counts }))
-      }
-    },
-    [],
-  )
 
   // Ver documento: cria signed URL a pedido (bucket privado)
   const verDocumento = async (doc: DocumentoInscricao) => {
+    if (!doc.url_ficheiro) return
     const { data, error } = await supabase.storage
       .from(STORAGE)
       .createSignedUrl(doc.url_ficheiro, 300)
@@ -93,6 +89,39 @@ export default function Candidaturas() {
       return
     }
     pushToast(`${i.nome_completo}: ${ESTADO_LABELS[novoEstado]}.`, 'sucesso')
+    void reload()
+  }
+
+  // Rejeição: a base exige motivo_rejeicao preenchido com estado = 'rejeitado'
+  // (constraint da 001). Sem o motivo, o UPDATE falhava sempre.
+  const [rejeitando, setRejeitando] = useState<Inscricao | null>(null)
+  const [motivo, setMotivo] = useState('')
+  const [aRejeitar, setARejeitar] = useState(false)
+
+  const abrirRejeicao = (i: Inscricao) => {
+    setMotivo('')
+    setRejeitando(i)
+  }
+
+  const confirmarRejeicao = async () => {
+    if (!rejeitando) return
+    const motivoLimpo = motivo.trim()
+    if (!motivoLimpo) {
+      pushToast('Indique o motivo da rejeição.', 'erro')
+      return
+    }
+    setARejeitar(true)
+    const { error } = await supabase
+      .from('inscricoes')
+      .update({ estado: 'rejeitado', motivo_rejeicao: motivoLimpo })
+      .eq('id', rejeitando.id)
+    setARejeitar(false)
+    if (error) {
+      pushToast(error.message, 'erro')
+      return
+    }
+    pushToast(`${rejeitando.nome_completo}: rejeitada.`, 'sucesso')
+    setRejeitando(null)
     void reload()
   }
 
@@ -144,31 +173,26 @@ export default function Candidaturas() {
                     <th className="px-4 py-2.5 font-medium">Nº / Data</th>
                     <th className="px-4 py-2.5 font-medium">Candidato</th>
                     <th className="px-4 py-2.5 font-medium">Curso</th>
+                    <th className="px-4 py-2.5 font-medium">Turma / Edição</th>
                     <th className="px-4 py-2.5 font-medium">Documentos</th>
                     <th className="px-4 py-2.5 font-medium">Estado</th>
                     <th className="px-4 py-2.5 font-medium text-right">Acções</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
-                  {linhas.map((l) => {
-                    const i = l.inscricao
-                    const ndocs = docsCount[i.id] ?? 0
+                  {linhas.map((i) => {
+                    const tipos = docsPorInscricao[i.id] ?? []
                     const aberta = expandida === i.id
                     return (
                       <DocRow
                         key={i.id}
                         inscricao={i}
-                        ndocs={ndocs}
+                        tipos={tipos}
                         aberta={aberta}
-                        onToggle={async () => {
-                          const nova = aberta ? null : i.id
-                          setExpandida(nova)
-                          if (nova && ndocs === 0) {
-                            await carregarDocs([i.id])
-                          }
-                        }}
+                        onToggle={() => setExpandida(aberta ? null : i.id)}
                         onVerDoc={verDocumento}
                         onEstado={alterarEstado}
+                        onRejeitar={abrirRejeicao}
                       />
                     )
                   })}
@@ -178,24 +202,59 @@ export default function Candidaturas() {
           )}
         </div>
       )}
+
+      {rejeitando && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-canvas/70 p-4 backdrop-blur-sm" role="dialog" aria-modal>
+          <div className="overlay-in w-full max-w-md rounded-lg border border-line bg-surface p-5">
+            <h3 className="font-serif text-lg font-semibold text-ink">Rejeitar candidatura</h3>
+            <p className="mt-1 text-[13px] text-ink-muted">
+              {rejeitando.nome_completo} · <span className="font-mono text-xs">{rejeitando.numero_inscricao}</span>
+            </p>
+            <label className="label-section mb-1 mt-4 block">Motivo da rejeição *</label>
+            <textarea
+              autoFocus
+              rows={3}
+              value={motivo}
+              onChange={(e) => setMotivo(e.target.value)}
+              className="input w-full"
+              placeholder="Ex.: Documentos ilegíveis ou em falta."
+            />
+            <p className="mt-1 text-xs text-ink-faint">O motivo fica registado na candidatura.</p>
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => void confirmarRejeicao()}
+                disabled={aRejeitar || !motivo.trim()}
+                className="btn-danger flex-1"
+              >
+                {aRejeitar ? 'A rejeitar...' : 'Rejeitar candidatura'}
+              </button>
+              <button onClick={() => setRejeitando(null)} className="btn-secondary">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }
 
 function DocRow({
   inscricao: i,
-  ndocs,
+  tipos,
   aberta,
   onToggle,
   onVerDoc,
   onEstado,
+  onRejeitar,
 }: {
   inscricao: Inscricao
-  ndocs: number
+  tipos: TipoDocumento[]
   aberta: boolean
   onToggle: () => void
   onVerDoc: (doc: DocumentoInscricao) => void
   onEstado: (i: Inscricao, estado: Inscricao['estado']) => void
+  onRejeitar: (i: Inscricao) => void
 }) {
   const [docs, setDocs] = useState<DocumentoInscricao[] | null>(null)
   const [loadingDocs, setLoadingDocs] = useState(false)
@@ -230,6 +289,9 @@ function DocRow({
     pushToast(`${TIPO_DOC_LABELS[doc.tipo_documento]} validado.`, 'sucesso')
   }
 
+  const temBi = tipos.includes('bi')
+  const temRecibo = tipos.includes('comprovativo_pagamento')
+
   return (
     <>
       <tr className={`hover:bg-canvas ${aberta ? 'bg-raised/50' : ''}`}>
@@ -246,12 +308,34 @@ function DocRow({
           <span className="block text-xs text-ink-faint">{i.telefone_whatsapp}</span>
         </td>
         <td className="px-4 py-2.5">
-          <button
-            onClick={toggle}
-            className="text-[13px] font-medium text-accent hover:text-accent-strong"
-          >
-            {ndocs > 0 ? `${ndocs} documento(s)` : 'Ver / carregar'}
-          </button>
+          {i.turmas ? (
+            <>
+              <p className="text-ink">{i.turmas.nome_turma}</p>
+              <p className="text-xs text-ink-faint">
+                {TURNO_LABELS[i.turmas.turno]} · {i.turmas.ano_lectivo}
+              </p>
+            </>
+          ) : (
+            <span className="text-xs text-ink-faint">— a alocar</span>
+          )}
+        </td>
+        <td className="px-4 py-2.5">
+          <div className="flex flex-col items-start gap-1">
+            <button
+              onClick={toggle}
+              className="text-left text-[13px] font-medium text-accent hover:text-accent-strong"
+            >
+              {tipos.length > 0 ? `${tipos.length} documento(s)` : 'Ver / carregar'}
+            </button>
+            <span className="flex gap-2.5 text-[11px] text-ink-faint">
+              <span className={temBi ? 'text-ok' : ''}>
+                <span aria-hidden>{temBi ? '✓' : '·'}</span> BI
+              </span>
+              <span className={temRecibo ? 'text-ok' : ''}>
+                <span aria-hidden>{temRecibo ? '✓' : '·'}</span> Recibo
+              </span>
+            </span>
+          </div>
         </td>
         <td className="px-4 py-2.5">
           <Badge variant={i.estado}>{ESTADO_LABELS[i.estado]}</Badge>
@@ -267,7 +351,7 @@ function DocRow({
               </button>
             )}
             {i.estado !== 'rejeitado' && (
-              <button onClick={() => onEstado(i, 'rejeitado')} className="btn-danger px-2.5 py-1 text-xs">
+              <button onClick={() => onRejeitar(i)} className="btn-danger px-2.5 py-1 text-xs">
                 Rejeitar
               </button>
             )}
@@ -276,7 +360,7 @@ function DocRow({
       </tr>
       {aberta && (
         <tr>
-          <td colSpan={6} className="border-b border-line bg-raised/30 px-4 py-3">
+          <td colSpan={7} className="border-b border-line bg-raised/30 px-4 py-3">
             {loadingDocs ? (
               <p className="text-xs text-ink-muted">A carregar documentos...</p>
             ) : !docs || docs.length === 0 ? (
@@ -286,23 +370,33 @@ function DocRow({
                 {docs.map((d) => (
                   <div
                     key={d.id}
-                    className="flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-xs text-ink"
+                    className="flex max-w-sm flex-col gap-1 rounded-md border border-line bg-surface px-3 py-1.5 text-xs text-ink"
                   >
-                    <button onClick={() => onVerDoc(d)} className="flex items-center gap-2 hover:text-accent">
-                      <span aria-hidden>📄</span>
-                      <span className="font-medium">{TIPO_DOC_LABELS[d.tipo_documento]}</span>
-                    </button>
-                    {d.estado_validacao ? (
-                      <span className="text-ok">✓</span>
-                    ) : (
-                      <button
-                        onClick={() => void validarDoc(d)}
-                        className="rounded bg-warn-soft px-1.5 py-0.5 font-medium text-warn hover:opacity-80"
-                        title="Marcar como validado"
-                      >
-                        Validar
-                      </button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {d.url_ficheiro ? (
+                        <button onClick={() => onVerDoc(d)} className="flex items-center gap-2 hover:text-accent">
+                          <span aria-hidden>📄</span>
+                          <span className="font-medium">{TIPO_DOC_LABELS[d.tipo_documento]}</span>
+                        </button>
+                      ) : (
+                        <span className="flex items-center gap-2">
+                          <span aria-hidden>✎</span>
+                          <span className="font-medium">{TIPO_DOC_LABELS[d.tipo_documento]}</span>
+                        </span>
+                      )}
+                      {d.estado_validacao ? (
+                        <span className="text-ok">✓</span>
+                      ) : (
+                        <button
+                          onClick={() => void validarDoc(d)}
+                          className="rounded bg-warn-soft px-1.5 py-0.5 font-medium text-warn hover:opacity-80"
+                          title="Marcar como validado"
+                        >
+                          Validar
+                        </button>
+                      )}
+                    </div>
+                    {d.texto && <p className="text-[11px] italic text-ink-muted">“{d.texto}”</p>}
                   </div>
                 ))}
               </div>

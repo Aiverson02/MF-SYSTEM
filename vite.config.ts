@@ -14,9 +14,10 @@ export default defineConfig({
         short_name: 'SIGA',
         description: 'Painel da secretaria e portal dos formadores.',
         lang: 'pt',
-        // '/' encaminha por papel: painel (secretaria/admin) ou portal (formador),
-        // para o mesmo PWA instalado servir os dois tipos de utilizador.
-        start_url: '/',
+        // A raiz ('/') é a página pública da instituição. A app instalada é a
+        // ferramenta da secretaria, por isso abre no painel (o portal dos
+        // formadores é encaminhado por papel a partir de `casaDoPapel`).
+        start_url: '/admin/dashboard',
         scope: '/',
         display: 'standalone',
         background_color: '#faf9f7',

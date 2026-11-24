@@ -30,12 +30,15 @@ function DocumentoItem({
 }) {
   const [url, setUrl] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
-  const ehImagem = /\.(png|jpe?g|gif|webp)$/i.test(doc.url_ficheiro)
-  const ehPdf = /\.pdf$/i.test(doc.url_ficheiro)
+  // 031: o recibo pode ser texto, sem ficheiro nenhum.
+  const ficheiro = doc.url_ficheiro
+  const ehImagem = !!ficheiro && /\.(png|jpe?g|gif|webp)$/i.test(ficheiro)
+  const ehPdf = !!ficheiro && /\.pdf$/i.test(ficheiro)
 
   useEffect(() => {
+    if (!ficheiro) return
     let revogado = false
-    obterDocumentoAssinado(doc.url_ficheiro)
+    obterDocumentoAssinado(ficheiro)
       .then((u) => {
         if (!revogado) setUrl(u)
       })
@@ -45,7 +48,7 @@ function DocumentoItem({
     return () => {
       revogado = true
     }
-  }, [doc.url_ficheiro])
+  }, [ficheiro])
 
   const alternarValidacao = async (onResult: (novoEstado: boolean) => void) => {
     const ok = await confirmarAcao({
@@ -78,7 +81,11 @@ function DocumentoItem({
           </button>
         </div>
       </div>
-      {erro ? (
+      {!ficheiro ? (
+        <p className="border-t border-line px-3.5 py-3 text-xs italic text-ink-muted">
+          {doc.texto ?? 'Sem ficheiro nem texto.'}
+        </p>
+      ) : erro ? (
         <div className="px-3.5 py-6 text-center text-xs text-danger">{erro}</div>
       ) : !url ? (
         <div className="flex items-center justify-center gap-2 py-10 text-ink-faint">

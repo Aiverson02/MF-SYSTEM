@@ -1,0 +1,1054 @@
+/* ============================================================================
+   Landing page pública — prospecto impresso da Moz Future.
+   Tokens próprios, isolados do tema do painel (index.css): a LP não muda com o
+   modo escuro da secretaria e nada aqui vaza para as páginas de gestão.
+   Todas as regras vivem dentro de `.lp`.
+   ========================================================================== */
+
+.lp {
+  --lp-papel: #f2f3ec;
+  --lp-papel-alto: #fafbf3;
+  --lp-tinta: #121a16;
+  --lp-tinta-fraca: #4a554d;
+  --lp-tinta-fantasma: #6b756d;
+  --lp-verde: #0e5b45;
+  --lp-verde-fundo: #0b4a38;
+  --lp-lima: #cbe07a;
+  --lp-carimbo: #c0472b;
+  --lp-linha: #d6d9cc;
+  --lp-linha-forte: #b9c0b4;
+
+  min-height: 100vh;
+  background: var(--lp-papel);
+  color: var(--lp-tinta);
+  font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.lp *,
+.lp *::before,
+.lp *::after {
+  box-sizing: border-box;
+}
+
+.lp ::selection {
+  background: var(--lp-lima);
+  color: var(--lp-tinta);
+}
+
+.lp :focus-visible {
+  outline: 2px solid var(--lp-verde);
+  outline-offset: 3px;
+}
+
+.lp-envolver {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 28px;
+}
+
+/* Tipografia ---------------------------------------------------------------- */
+
+.lp-h1,
+.lp-h2,
+.lp-h3 {
+  font-family: 'Archivo', 'IBM Plex Sans', sans-serif;
+  color: var(--lp-tinta);
+}
+
+.lp-h1 {
+  margin: 0;
+  font-weight: 800;
+  font-size: clamp(2.75rem, 7.2vw, 5.4rem);
+  line-height: 0.92;
+  letter-spacing: -0.025em;
+}
+
+.lp-h1-linha {
+  display: block;
+}
+
+.lp-h1-destaque {
+  color: var(--lp-verde);
+  position: relative;
+  display: inline-block;
+  /* Mantém o traço de lima atrás do texto (z-index -1) sem o mandar para trás
+     do fundo da secção. */
+  isolation: isolate;
+}
+
+.lp-h1-destaque::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -0.06em;
+  height: 0.09em;
+  background: var(--lp-lima);
+  z-index: -1;
+}
+
+.lp-h2 {
+  margin: 10px 0 0;
+  font-weight: 800;
+  font-size: clamp(1.75rem, 3.4vw, 2.5rem);
+  line-height: 1.03;
+  letter-spacing: -0.02em;
+}
+
+.lp-h3 {
+  margin: 0;
+  font-weight: 700;
+  font-size: 1.16rem;
+  line-height: 1.25;
+}
+
+.lp-etiqueta {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--lp-verde);
+}
+
+.lp-sub {
+  margin: 26px 0 0;
+  max-width: 52ch;
+  font-size: 1.06rem;
+  color: var(--lp-tinta-fraca);
+}
+
+.lp-texto {
+  margin: 0;
+  color: var(--lp-tinta-fraca);
+}
+
+.lp-mono {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Cabeçalho ----------------------------------------------------------------- */
+
+.lp-topo {
+  border-bottom: 1px solid var(--lp-linha);
+}
+
+.lp-topo-in {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 28px;
+  padding: 20px 0;
+}
+
+.lp-marca {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.lp-marca-logo {
+  height: 44px;
+  width: auto;
+}
+
+.lp-marca-nome {
+  font-family: 'Archivo', sans-serif;
+  font-weight: 900;
+  font-size: 1.25rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  line-height: 1.1;
+}
+
+.lp-marca-sub {
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lp-tinta-fantasma);
+}
+
+.lp-topo-accao {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.lp-selo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1.5px solid var(--lp-carimbo);
+  color: var(--lp-carimbo);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  transform: rotate(-1.6deg);
+  line-height: 1.4;
+}
+
+.lp-selo-ponto {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lp-carimbo);
+}
+
+/* Botões -------------------------------------------------------------------- */
+
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 22px;
+  border: 1px solid var(--lp-verde);
+  border-radius: 2px;
+  background: var(--lp-verde);
+  color: #fbfcf7;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.lp-btn:hover {
+  background: var(--lp-verde-fundo);
+  border-color: var(--lp-verde-fundo);
+}
+
+.lp-btn:active {
+  transform: translateY(1px);
+}
+
+.lp-btn[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.lp-btn--fantasma {
+  background: transparent;
+  color: var(--lp-verde);
+}
+
+.lp-btn--fantasma:hover {
+  background: rgba(14, 91, 69, 0.07);
+  border-color: var(--lp-verde);
+}
+
+.lp-btn--larga {
+  width: 100%;
+}
+
+.lp-ligacao {
+  color: var(--lp-verde);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/* Hero + talão -------------------------------------------------------------- */
+
+.lp-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(290px, 0.78fr);
+  gap: 56px;
+  align-items: start;
+  padding: 56px 0 68px;
+}
+
+.lp-factos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 34px;
+  margin: 34px 0 0;
+  padding: 22px 0 0;
+  border-top: 1px solid var(--lp-linha);
+  list-style: none;
+}
+
+.lp-facto b {
+  display: block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 1.24rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.lp-facto span {
+  font-size: 0.8rem;
+  color: var(--lp-tinta-fantasma);
+}
+
+.lp-talao {
+  position: sticky;
+  top: 24px;
+  border: 1px solid var(--lp-tinta);
+  background: var(--lp-papel-alto);
+  padding: 22px 22px 24px;
+  box-shadow: 5px 5px 0 rgba(18, 26, 22, 0.07);
+}
+
+.lp-talao-topo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed var(--lp-linha-forte);
+}
+
+.lp-talao-titulo {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.lp-talao-edicao {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.66rem;
+  color: var(--lp-tinta-fantasma);
+}
+
+.lp-talao-curso {
+  margin: 14px 0 2px;
+  font-family: 'Archivo', sans-serif;
+  font-weight: 700;
+  font-size: 1.22rem;
+  line-height: 1.2;
+}
+
+.lp-talao-nota {
+  margin: 0 0 6px;
+  font-size: 0.8rem;
+  color: var(--lp-tinta-fantasma);
+}
+
+.lp-talao-linhas {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lp-talao-linha {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px dashed var(--lp-linha);
+  font-size: 0.88rem;
+  color: var(--lp-tinta-fraca);
+}
+
+.lp-talao-linha b {
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 500;
+  color: var(--lp-tinta);
+  text-align: right;
+}
+
+.lp-talao-linha--total {
+  border-bottom: none;
+  padding-bottom: 0;
+  color: var(--lp-tinta);
+  font-weight: 600;
+}
+
+.lp-talao-linha--total b {
+  font-size: 1.3rem;
+}
+
+.lp-talao-accao {
+  margin-top: 18px;
+}
+
+.lp-talao-pe {
+  margin: 14px 0 0;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: var(--lp-tinta-fantasma);
+  text-align: center;
+}
+
+/* Secções ------------------------------------------------------------------- */
+
+.lp-sec {
+  padding: 62px 0;
+  border-top: 1px solid var(--lp-linha);
+}
+
+.lp-sec-cabeca {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 32px;
+}
+
+.lp-sec-nota {
+  max-width: 40ch;
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--lp-tinta-fantasma);
+}
+
+/* Cursos -------------------------------------------------------------------- */
+
+.lp-cursos {
+  margin-top: 34px;
+  border-top: 2px solid var(--lp-tinta);
+}
+
+.lp-curso {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.55fr) 92px 104px 44px;
+  gap: 8px 20px;
+  align-items: center;
+  padding: 16px 8px;
+  border-bottom: 1px solid var(--lp-linha);
+  transition: background 0.12s ease;
+}
+
+.lp-curso:hover {
+  background: rgba(203, 224, 122, 0.24);
+}
+
+.lp-curso-nome {
+  font-weight: 600;
+  font-size: 0.98rem;
+  line-height: 1.35;
+}
+
+.lp-curso-cod {
+  display: block;
+  margin-top: 2px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  color: var(--lp-tinta-fantasma);
+}
+
+.lp-curso-desc {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--lp-tinta-fraca);
+}
+
+.lp-curso-dur {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--lp-tinta-fraca);
+}
+
+.lp-curso-preco {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.82rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.lp-curso-preco b {
+  display: block;
+  font-size: 0.98rem;
+  font-weight: 500;
+}
+
+.lp-curso-preco span {
+  font-size: 0.66rem;
+  color: var(--lp-tinta-fantasma);
+}
+
+.lp-curso-escolher {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--lp-linha-forte);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--lp-verde);
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.lp-curso-escolher:hover {
+  background: var(--lp-verde);
+  border-color: var(--lp-verde);
+  color: var(--lp-papel-alto);
+}
+
+/* Valores ------------------------------------------------------------------- */
+
+.lp-valores {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 48px;
+  align-items: start;
+}
+
+.lp-valores-lista {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 2px solid var(--lp-tinta);
+}
+
+.lp-valor {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 24px;
+  align-items: baseline;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--lp-linha);
+}
+
+.lp-valor-nome {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.lp-valor-nota {
+  grid-column: 1;
+  font-size: 0.83rem;
+  color: var(--lp-tinta-fantasma);
+}
+
+.lp-valor-num {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 1.3rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.lp-pagamentos {
+  margin: 18px 0 0;
+  font-size: 0.86rem;
+  color: var(--lp-tinta-fraca);
+}
+
+/* Passos -------------------------------------------------------------------- */
+
+.lp-passos {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 34px;
+  background: var(--lp-linha);
+  border: 1px solid var(--lp-linha);
+}
+
+.lp-passo {
+  background: var(--lp-papel);
+  padding: 22px 20px 24px;
+}
+
+.lp-passo-num {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  background: var(--lp-verde);
+  color: var(--lp-lima);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.8rem;
+}
+
+.lp-passo-titulo {
+  margin: 14px 0 6px;
+  font-family: 'Archivo', sans-serif;
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.lp-passo-texto {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--lp-tinta-fraca);
+}
+
+/* Locais -------------------------------------------------------------------- */
+
+.lp-locais {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 32px;
+  margin-top: 32px;
+}
+
+.lp-local {
+  border-top: 3px solid var(--lp-verde);
+  padding-top: 16px;
+}
+
+.lp-local-nome {
+  margin: 0;
+  font-family: 'Archivo', sans-serif;
+  font-weight: 700;
+  font-size: 1.3rem;
+  line-height: 1.2;
+}
+
+.lp-local-ref {
+  margin: 6px 0 0;
+  font-size: 0.9rem;
+  color: var(--lp-tinta-fraca);
+}
+
+.lp-local-mapa {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  min-height: 44px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--lp-verde);
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+}
+
+.lp-local-mapa:hover {
+  color: var(--lp-verde-fundo);
+}
+
+/* Perguntas frequentes ------------------------------------------------------ */
+
+.lp-faq {
+  margin-top: 30px;
+  border-top: 1px solid var(--lp-linha);
+}
+
+.lp-pergunta {
+  border-bottom: 1px solid var(--lp-linha);
+}
+
+.lp-pergunta summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 52px;
+  padding: 14px 0;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.98rem;
+  list-style: none;
+}
+
+.lp-pergunta summary::-webkit-details-marker {
+  display: none;
+}
+
+.lp-pergunta summary::after {
+  content: '+';
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 1.1rem;
+  color: var(--lp-verde);
+  line-height: 1;
+}
+
+.lp-pergunta[open] summary::after {
+  content: '–';
+}
+
+.lp-pergunta p {
+  margin: 0 0 18px;
+  max-width: 68ch;
+  font-size: 0.9rem;
+  color: var(--lp-tinta-fraca);
+}
+
+/* Formulário ---------------------------------------------------------------- */
+
+.lp-inscricao {
+  display: grid;
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+  gap: 48px;
+  align-items: start;
+  margin-top: 34px;
+}
+
+.lp-form {
+  border: 1.5px solid var(--lp-tinta);
+  background: var(--lp-papel-alto);
+}
+
+.lp-form-topo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 20px;
+  background: var(--lp-verde);
+  color: #f3f6ea;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.lp-form-corpo {
+  padding: 22px 20px 24px;
+}
+
+.lp-grelha {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.lp-campo--largo {
+  grid-column: 1 / -1;
+}
+
+.lp-campo label,
+.lp-campo-legenda {
+  display: block;
+  margin-bottom: 6px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.64rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: #39433c;
+}
+
+.lp-obrigatorio {
+  color: var(--lp-carimbo);
+}
+
+.lp-input {
+  width: 100%;
+  min-height: 46px;
+  padding: 11px 12px;
+  border: 1px solid var(--lp-linha-forte);
+  border-radius: 2px;
+  background: #fcfdf8;
+  color: var(--lp-tinta);
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.lp-input:focus {
+  outline: none;
+  border-color: var(--lp-verde);
+  box-shadow: 0 0 0 3px rgba(14, 91, 69, 0.16);
+}
+
+.lp-input[aria-invalid='true'] {
+  border-color: var(--lp-carimbo);
+}
+
+textarea.lp-input {
+  min-height: 78px;
+  resize: vertical;
+}
+
+.lp-ajuda {
+  margin: 5px 0 0;
+  font-size: 0.74rem;
+  color: var(--lp-tinta-fantasma);
+}
+
+.lp-anexo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 12px;
+  border: 1px dashed var(--lp-linha-forte);
+  background: #fafbf4;
+}
+
+.lp-anexo input[type='file'] {
+  flex: 1 1 190px;
+  min-width: 0;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 0.82rem;
+  color: var(--lp-tinta-fraca);
+}
+
+.lp-anexo input[type='file']::file-selector-button {
+  margin-right: 10px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--lp-verde);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--lp-verde);
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lp-anexo-remover {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--lp-linha-forte);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--lp-tinta-fraca);
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.lp-anexo-remover:hover {
+  border-color: var(--lp-carimbo);
+  color: var(--lp-carimbo);
+}
+
+.lp-previa {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 0.76rem;
+  color: var(--lp-tinta-fraca);
+}
+
+.lp-previa img {
+  max-height: 64px;
+  width: auto;
+  border: 1px solid var(--lp-linha);
+}
+
+.lp-erro {
+  display: flex;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--lp-carimbo);
+  background: rgba(192, 71, 43, 0.08);
+  color: #8d2f1a;
+  font-size: 0.86rem;
+}
+
+.lp-form-rodape {
+  margin: 16px 0 0;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: var(--lp-tinta-fantasma);
+}
+
+/* Confirmação --------------------------------------------------------------- */
+
+.lp-recibo {
+  border: 1.5px solid var(--lp-tinta);
+  background: var(--lp-papel-alto);
+  padding: 26px 24px 28px;
+}
+
+.lp-recibo-selo {
+  display: inline-block;
+  padding: 5px 10px;
+  border: 1.5px solid var(--lp-verde);
+  color: var(--lp-verde);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.64rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transform: rotate(-1.5deg);
+}
+
+.lp-recibo-numero {
+  margin: 18px 0 4px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: clamp(1.6rem, 4vw, 2.1rem);
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+}
+
+.lp-recibo-linhas {
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px dashed var(--lp-linha-forte);
+}
+
+.lp-recibo-linhas li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px dashed var(--lp-linha);
+  font-size: 0.86rem;
+}
+
+.lp-recibo-linhas b {
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 500;
+  text-align: right;
+}
+
+.lp-aviso {
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid #a8791f;
+  background: rgba(203, 161, 74, 0.13);
+  font-size: 0.82rem;
+  color: #6b4d10;
+}
+
+/* Rodapé -------------------------------------------------------------------- */
+
+.lp-rodape {
+  border-top: 2px solid var(--lp-tinta);
+  padding: 30px 0 44px;
+}
+
+.lp-rodape-in {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px 28px;
+  font-size: 0.8rem;
+  color: var(--lp-tinta-fantasma);
+}
+
+.lp-rodape-in a {
+  color: var(--lp-verde);
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+}
+
+.lp-rodape-in a:hover {
+  color: var(--lp-verde-fundo);
+}
+
+.lp-carregando {
+  padding: 120px 0;
+  text-align: center;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.8rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lp-tinta-fantasma);
+}
+
+/* Ecrãs menores ------------------------------------------------------------- */
+
+@media (max-width: 980px) {
+  .lp-hero,
+  .lp-valores,
+  .lp-inscricao {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 40px;
+  }
+
+  .lp-talao {
+    position: static;
+  }
+
+  .lp-passos {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .lp-curso {
+    grid-template-columns: minmax(0, 1fr) 44px;
+    gap: 4px 16px;
+  }
+
+  .lp-curso-desc {
+    grid-column: 1;
+  }
+
+  .lp-curso-dur,
+  .lp-curso-preco {
+    grid-row: auto;
+    text-align: left;
+  }
+
+  .lp-curso-preco {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+
+  .lp-curso-preco b {
+    display: inline;
+  }
+
+  .lp-curso-escolher {
+    grid-row: 1 / span 4;
+    grid-column: 2;
+    align-self: start;
+  }
+}
+
+@media (max-width: 620px) {
+  .lp-envolver {
+    padding: 0 20px;
+  }
+
+  .lp-hero {
+    padding: 36px 0 44px;
+  }
+
+  .lp-sec {
+    padding: 46px 0;
+  }
+
+  .lp-sec-cabeca {
+    display: block;
+  }
+
+  .lp-sec-nota {
+    margin-top: 12px;
+  }
+
+  .lp-passos,
+  .lp-locais,
+  .lp-grelha {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lp-passos {
+    gap: 1px;
+  }
+
+  .lp-marca-sub {
+    display: none;
+  }
+
+  .lp-topo-accao .lp-selo {
+    display: none;
+  }
+
+  .lp-topo-accao .lp-btn {
+    min-height: 44px;
+    padding: 0 16px;
+    font-size: 0.86rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp *,
+  .lp *::before,
+  .lp *::after {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}

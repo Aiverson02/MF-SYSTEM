@@ -1,6 +1,6 @@
 import React, { Suspense, lazy } from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { RequireAuth } from './components/RequireAuth'
 import RequirePapel from './components/RequirePapel'
 import { PAPEIS_STAFF } from './hooks/usePerfil'
@@ -16,6 +16,7 @@ import './index.css'
 // Divisão de código: cada página do painel entra em chunks separados, baixados
 // sob demanda quando o utilizador navega para eles. Isto mantém rápido o
 // arranque do sistema principal.
+const Landing = lazy(() => import('./pages/Landing'))
 const AdminLayout = lazy(() => import('./components/AdminLayout'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Inscricoes = lazy(() => import('./pages/Inscricoes'))
@@ -36,17 +37,23 @@ const PortalFormador = lazy(() => import('./pages/formador/PortalFormador'))
 const MinhasPautas = lazy(() => import('./pages/formador/MinhasPautas'))
 const LancarPauta = lazy(() => import('./pages/formador/LancarPauta'))
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <ToastHost />
-    <ConfirmHost />
-    <BarraOffline />
-    <PromptInstalacao />
-    <BrowserRouter>
+/** Área de trabalho (painel, login, portal): as ferramentas do SIGA. */
+const AREA_RESERVADA = /^\/(admin|login|formador)(\/|$)/
+
+function App() {
+  const { pathname } = useLocation()
+  const areaReservada = AREA_RESERVADA.test(pathname)
+
+  return (
+    <>
+      {/* A barra offline e o convite a instalar são da secretaria — não
+          aparecem a quem só veio ver o prospecto da instituição. */}
+      {areaReservada && <BarraOffline />}
+      {areaReservada && <PromptInstalacao />}
       <Suspense fallback={<LoadingBlock />}>
         <Routes>
-          {/* Raiz = sistema principal: encaminha para o painel (ou login, via RequireAuth) */}
-          <Route path="/" element={<Navigate to="/admin/dashboard" replace />} />
+          {/* A raiz é a página pública da instituição. */}
+          <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
           <Route element={<RequireAuth />}>
             {/* Painel da secretaria — papéis admin/secretaria */}
@@ -78,9 +85,20 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               </Route>
             </Route>
           </Route>
-          <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
+          {/* Qualquer outro endereço cai no prospecto — o site é público. */}
+          <Route path="*" element={<Landing />} />
         </Routes>
       </Suspense>
+    </>
+  )
+}
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <ToastHost />
+    <ConfirmHost />
+    <BrowserRouter>
+      <App />
     </BrowserRouter>
   </React.StrictMode>,
 )

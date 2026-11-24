@@ -42,6 +42,7 @@ const FICHEIROS = [
   '028_cobrancas_pos_conclusao_automaticas.sql',
   '029_financas_diarias.sql',
   '030_recebimentos_rapidos.sql',
+  '031_landing_publica.sql',
 ]
 
 // ---------------------------------------------------------------- ferramentas
@@ -1233,6 +1234,99 @@ verificar('030: RPC tem search_path fixo',
       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.proname = 'registar_recebimento'
   `)).rows[0]?.o ?? ''))
+
+// ===========================================================================
+grupo('031 — landing pública: catálogo, turma da edição e recibo em texto')
+
+// Re-executar a migração tem de ser seguro (o deploy corre o ficheiro inteiro).
+try {
+  await db.exec(fs.readFileSync(path.join(MIGRACOES, '031_landing_publica.sql'), 'utf8'))
+  verificar('031: re-executar a migração não falha (idempotente)', true)
+} catch (e) {
+  verificar('031: re-executar a migração não falha (idempotente)', false, e.message)
+}
+
+const locais031 = (await db.query(`select nome, referencia, ordem from public.locais order by ordem`)).rows
+verificar('031: as duas localizações ficam registadas',
+  locais031.length === 2 && locais031[0].nome === 'Malhazine' && locais031[1].nome === 'João Mateus',
+  JSON.stringify(locais031))
+verificar('031: Malhazine guarda a referência "Paragem Fim do Murro"',
+  locais031[0]?.referencia === 'Paragem Fim do Murro', String(locais031[0]?.referencia))
+
+const cursos031 = (await db.query(`
+  select count(*)::int                                             as total,
+         count(*) filter (where duracao = '3 meses')::int          as com_duracao,
+         count(*) filter (where descricao is null or btrim(descricao) = '')::int as sem_descricao
+    from public.cursos
+   where ativo
+     and codigo = any($1)
+`, [`{${CODIGOS_NOVOS.join(',')}}`])).rows[0]
+verificar('031: os 14 cursos do catálogo ficam com 3 meses',
+  cursos031.total === 14 && cursos031.com_duracao === cursos031.total, JSON.stringify(cursos031))
+verificar('031: os 14 cursos ficam com descrição',
+  cursos031.sem_descricao === 0, JSON.stringify(cursos031))
+verificar('031: semente de 200 MT (dia 5) para o ano corrente',
+  (await db.query(`
+    select count(*)::int as n from public.config_pagamentos
+     where ano_lectivo = extract(year from now())::int
+       and valor_mensalidade = 200 and dia_limite = 5
+  `)).rows[0].n >= 1)
+
+// Catálogo público: uma só chamada, legível sem sessão.
+const cat031 = (await como(null, `select public.catalogo_publico() as c`))[0].c
+verificar('031: catálogo público traz instituição, edição, locais e cursos',
+  !!cat031?.instituicao && !!cat031?.edicao && Array.isArray(cat031?.cursos) && Array.isArray(cat031?.locais),
+  JSON.stringify({ edicao: cat031?.edicao, cursos: cat031?.cursos?.length }))
+verificar('031: anon vê as duas localizações no catálogo', cat031?.locais?.length === 2)
+
+const cursoA031 = cat031?.cursos?.find((c) => c.id === cA)
+verificar('031: curso traz preço e os turnos da edição corrente',
+  Number(cursoA031?.mensalidade) > 0 && (cursoA031?.turnos ?? []).length === 2 &&
+    cursoA031.turnos.some((t) => t.turma_id === tA1 && t.turno === 'manha'),
+  JSON.stringify({ preco: cursoA031?.mensalidade, turnos: cursoA031?.turnos }))
+
+// A inscrição do site grava a turma da edição (curso + turno).
+const r031 = (await como(null, `
+  select * from public.submeter_inscricao_publica('Aluno Landing', 'BI-031', null, null, 'landing@exemplo.mz', '849990031', '${cA}', 'manha'::public.turno)
+`))[0]
+const linha031 = (await db.query(
+  `select turma_id, origem, estado from public.inscricoes where id = '${r031?.inscricao_id}'`,
+)).rows[0]
+verificar('031: inscrição do site fica com a turma da edição corrente',
+  linha031?.turma_id === tA1 && linha031?.origem === 'online' && linha031?.estado === 'pendente',
+  JSON.stringify(linha031))
+
+// Sem turma para o turno pedido: fica NULL (a secretaria aloca), nunca se inventa.
+const r031b = (await como(null, `
+  select * from public.submeter_inscricao_publica('Aluno Sem Turma', 'BI-032', null, null, null, '849990032', '${cB}', 'pos_laboral'::public.turno)
+`))[0]
+verificar('031: turno sem turma na edição fica sem turma',
+  (await db.query(`select turma_id from public.inscricoes where id = '${r031b?.inscricao_id}'`)).rows[0].turma_id === null)
+
+// Recibo escrito: fica no mesmo sítio dos ficheiros, por validar.
+const doc031 = (await como(null,
+  `select public.anexar_documento_texto('${r031?.inscricao_id}', 'comprovativo_pagamento', 'Paguei 200 MT por M-Pesa, ref 1234') as id`))[0].id
+verificar('031: recibo em texto é anexado à inscrição', typeof doc031 === 'string' && doc031.length === 36)
+const linhaDoc031 = (await db.query(
+  `select url_ficheiro, texto, estado_validacao from public.documentos_inscricao where id = '${doc031}'`,
+)).rows[0]
+verificar('031: recibo em texto fica sem ficheiro e por validar',
+  linhaDoc031.url_ficheiro === null && /M-Pesa/.test(linhaDoc031.texto) && linhaDoc031.estado_validacao === false,
+  JSON.stringify(linhaDoc031))
+
+verificar('031: texto vazio é recusado',
+  (await como(null, `select public.anexar_documento_texto('${r031?.inscricao_id}', 'comprovativo_pagamento', '   ') as id`))[0].id === null)
+verificar('031: texto acima de 1000 caracteres é recusado',
+  (await como(null, `select public.anexar_documento_texto('${r031?.inscricao_id}', 'comprovativo_pagamento', repeat('x', 1001)) as id`))[0].id === null)
+verificar('031: inscrição inexistente não recebe documentos',
+  (await como(null, `select public.anexar_documento_texto('00000000-0000-0000-0000-000000000000', 'bi', 'texto') as id`))[0].id === null)
+
+await esperaErro(staff,
+  `insert into public.documentos_inscricao (inscricao_id, tipo_documento, url_ficheiro, texto) values ('${a1}', 'bi', '${a1}/bi-1.jpg', 'texto')`,
+  /documentos_inscricao_conteudo_check/, '031: documento com ficheiro e texto é recusado')
+await esperaErro(staff,
+  `insert into public.documentos_inscricao (inscricao_id, tipo_documento) values ('${a1}', 'bi')`,
+  /documentos_inscricao_conteudo_check/, '031: documento sem ficheiro nem texto é recusado')
 
 // ===========================================================================
 console.log(falhas === 0 ? `\n${total} verificações passaram.` : `\n${falhas} de ${total} verificações FALHARAM.`)
