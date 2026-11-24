@@ -1043,6 +1043,44 @@ textarea.lp-input {
   }
 }
 
+/* Vários cursos ------------------------------------------------------------- */
+
+.lp-escolhas {
+  display: grid;
+  gap: 14px;
+}
+
+.lp-escolha {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 12px;
+  align-items: start;
+  padding-top: 12px;
+  border-top: 1px dashed var(--lp-linha);
+}
+
+.lp-escolha:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.lp-recibo-bloco {
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px dashed var(--lp-linha-forte);
+}
+
+.lp-recibo-bloco:last-of-type {
+  border-bottom: 0;
+  margin-bottom: 0;
+}
+
+@media (max-width: 640px) {
+  .lp-escolha {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .lp *,
   .lp *::before,

@@ -7,6 +7,7 @@ import { useAsyncData } from '../hooks/useAsyncData'
 import { Badge, ErrorMessage } from '../components/ui'
 import { format } from '../lib/format'
 import RelatorioMensalModal from '../components/RelatorioMensalModal'
+import { useEdicao } from '../hooks/useEdicao'
 
 interface DashboardData {
   aprovadasMes: number
@@ -88,19 +89,39 @@ function OrigemTag({ origem }: { origem: 'online' | 'presencial' }) {
 export default function Dashboard() {
   const [collapsed, setCollapsed] = useState(false)
   const [relatorioAberto, setRelatorioAberto] = useState(false)
+  // Os números do painel são os da edição escolhida no cabeçalho.
+  const { edicaoId } = useEdicao()
 
   const fetcher = useCallback(async (): Promise<{ data: DashboardData | null; error: { message: string } | null }> => {
+    let qAprovadas = supabase
+      .from('inscricoes')
+      .select('id', { count: 'exact', head: true })
+      .eq('estado', 'aprovado')
+      .gte('created_at', inicioMes())
+    let qAlunos = supabase.from('alunos_matriculados').select('estado_aluno, turmas!inner(edicao_id)')
+    let qTurmas = supabase.from('turmas').select('*, cursos(nome)').order('nome_turma')
+    let qRecentes = supabase
+      .from('inscricoes')
+      .select('*, cursos(nome, codigo)')
+      .order('created_at', { ascending: false })
+      .limit(6)
+    let qTodas = supabase.from('inscricoes').select('estado, origem, created_at').gte('created_at', inicioMes())
+
+    if (edicaoId) {
+      qAprovadas = qAprovadas.eq('edicao_id', edicaoId)
+      qAlunos = qAlunos.eq('turmas.edicao_id', edicaoId)
+      qTurmas = qTurmas.eq('edicao_id', edicaoId)
+      qRecentes = qRecentes.eq('edicao_id', edicaoId)
+      qTodas = qTodas.eq('edicao_id', edicaoId)
+    }
+
     const [docsPend, aprovMes, alunos, turmas, recentes, todas, pagsMes] = await Promise.all([
       supabase.from('documentos_inscricao').select('id', { count: 'exact', head: true }).eq('estado_validacao', false),
-      supabase
-        .from('inscricoes')
-        .select('id', { count: 'exact', head: true })
-        .eq('estado', 'aprovado')
-        .gte('created_at', inicioMes()),
-      supabase.from('alunos_matriculados').select('estado_aluno'),
-      supabase.from('turmas').select('*, cursos(nome)').order('nome_turma'),
-      supabase.from('inscricoes').select('*, cursos(nome, codigo)').order('created_at', { ascending: false }).limit(6),
-      supabase.from('inscricoes').select('estado, origem, created_at').gte('created_at', inicioMes()),
+      qAprovadas,
+      qAlunos,
+      qTurmas,
+      qRecentes,
+      qTodas,
       supabase.from('pagamentos').select('*').eq('mes_referencia', mesActualDia1()),
     ])
 
@@ -126,9 +147,9 @@ export default function Dashboard() {
       },
       error: null,
     }
-  }, [])
+  }, [edicaoId])
 
-  const { data, loading, error, reload } = useAsyncData<DashboardData>(fetcher, [])
+  const { data, loading, error, reload } = useAsyncData<DashboardData>(fetcher, [edicaoId])
 
   const fin = useMemo(() => {
     const activos = (data?.pagamentos ?? []).filter((p) => p.estado !== 'cancelado')

@@ -12,6 +12,7 @@ import ValidacaoInscricao from '../components/ValidacaoInscricao'
 import NovaInscricaoModal from '../components/NovaInscricaoModal'
 import EditarInscricaoModal from '../components/EditarInscricaoModal'
 import ImportarInscricoesModal from '../components/ImportarInscricoesModal'
+import { useEdicao } from '../hooks/useEdicao'
 
 const PAGE_SIZE = 15
 
@@ -26,6 +27,9 @@ export default function Inscricoes() {
   const [searchParams, setSearchParams] = useSearchParams()
   const validarId = searchParams.get('validar')
 
+  // Só as inscrições da edição escolhida no cabeçalho.
+  const { edicaoId } = useEdicao()
+
   const [pesquisa, setPesquisa] = useState('')
   const [pesquisaInput, setPesquisaInput] = useState('')
   const [cursoFiltro, setCursoFiltro] = useState('todos')
@@ -39,15 +43,12 @@ export default function Inscricoes() {
   const [resumoMassa, setResumoMassa] = useState<ResumoValidacaoMassa | null>(null)
 
   // Turmas para o modal de alocação
-  const turmasFetcher = useCallback(
-    async () =>
-      (await supabase.from('turmas').select('*').order('ano_lectivo', { ascending: false })) as {
-        data: Turma[] | null
-        error: { message: string } | null
-      },
-    [],
-  )
-  const { data: turmas, reload: reloadTurmas } = useAsyncData<Turma[]>(turmasFetcher, [])
+  const turmasFetcher = useCallback(async () => {
+    let query = supabase.from('turmas').select('*').order('ano_lectivo', { ascending: false })
+    if (edicaoId) query = query.eq('edicao_id', edicaoId)
+    return (await query) as { data: Turma[] | null; error: { message: string } | null }
+  }, [edicaoId])
+  const { data: turmas, reload: reloadTurmas } = useAsyncData<Turma[]>(turmasFetcher, [edicaoId])
 
   // Cursos para o filtro
   const cursosFetcher = useCallback(
@@ -68,6 +69,7 @@ export default function Inscricoes() {
       .order('created_at', { ascending: false })
       .range(pagina * PAGE_SIZE, (pagina + 1) * PAGE_SIZE - 1)
 
+    if (edicaoId) query = query.eq('edicao_id', edicaoId)
     if (pesquisa) {
       query = query.or(`nome_completo.ilike.%${pesquisa}%,numero_bi.ilike.%${pesquisa}%`)
     }
@@ -77,9 +79,15 @@ export default function Inscricoes() {
     const { data: lista, count, error } = await query
     if (error) return { data: null, error }
     return { data: { lista: (lista ?? []) as Inscricao[], total: count ?? 0 }, error: null }
-  }, [pagina, pesquisa, cursoFiltro, estadoFiltro])
+  }, [pagina, pesquisa, cursoFiltro, estadoFiltro, edicaoId])
 
-  const { data, loading, error, reload, setData } = useAsyncData(fetcher, [pagina, pesquisa, cursoFiltro, estadoFiltro])
+  const { data, loading, error, reload, setData } = useAsyncData(fetcher, [
+    pagina,
+    pesquisa,
+    cursoFiltro,
+    estadoFiltro,
+    edicaoId,
+  ])
 
   const inscricoes = data?.lista ?? []
   const total = data?.total ?? 0

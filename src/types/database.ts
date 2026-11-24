@@ -41,6 +41,8 @@ export interface Turma {
   limite_vagas: number
   vagas_preenchidas: number
   ano_lectivo: number
+  /** Edição de 3 meses a que a turma pertence (032). */
+  edicao_id: string | null
   created_at: string
 }
 
@@ -59,6 +61,8 @@ export interface Inscricao {
   turno_pretendido: Turno
   /** Turma da edição corrente gravada na submissão pública (031). */
   turma_id: string | null
+  /** Edição da candidatura (032): a da turma ou a que decorria na submissão. */
+  edicao_id: string | null
   estado: EstadoInscricao
   motivo_rejeicao: string | null
   origem: 'online' | 'presencial'

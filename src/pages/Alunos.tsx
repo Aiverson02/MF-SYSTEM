@@ -11,6 +11,7 @@ import { exportToCsv } from '../lib/exportCsv'
 import { confirmarAcao, showError, showSuccess } from '../lib/alerts'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { matricularEmTurma } from '../lib/inscricoesService'
+import { useEdicao } from '../hooks/useEdicao'
 
 // --- Modal de alocação de turma -----------------------------------------------
 
@@ -126,6 +127,8 @@ export default function Alunos() {
   const [alocando, setAlocando] = useState<Inscricao | null>(null)
   const [exportando, setExportando] = useState(false)
   const [resumos, setResumos] = useState<Record<string, NotasResumo>>({})
+  // Alunos, turmas e fila de alocação ficam presos à edição escolhida.
+  const { edicaoId } = useEdicao()
 
   /** Nota final por aluno, da vista `notas_resumo_aluno` (a fórmula é do servidor). */
   const carregarResumos = useCallback(async (ids: string[]) => {
@@ -137,36 +140,35 @@ export default function Alunos() {
     return mapa
   }, [])
 
-  const turmasFetcher = useCallback(
-    async () =>
-      (await supabase
-        .from('turmas')
-        .select('*, cursos(nome)')
-        .order('ano_lectivo', { ascending: false })) as {
-        data: (Turma & { cursos?: { nome: string } | null })[] | null
-        error: { message: string } | null
-      },
-    [],
-  )
-  const { data: turmas } = useAsyncData<(Turma & { cursos?: { nome: string } | null })[]>(turmasFetcher, [])
+  const turmasFetcher = useCallback(async () => {
+    let query = supabase.from('turmas').select('*, cursos(nome)').order('ano_lectivo', { ascending: false })
+    if (edicaoId) query = query.eq('edicao_id', edicaoId)
+    return (await query) as {
+      data: (Turma & { cursos?: { nome: string } | null })[] | null
+      error: { message: string } | null
+    }
+  }, [edicaoId])
+  const { data: turmas } = useAsyncData<(Turma & { cursos?: { nome: string } | null })[]>(turmasFetcher, [edicaoId])
 
   const alunosFetcher = useCallback(async () => {
     let query = supabase
       .from('alunos_matriculados')
       .select(
-        '*, inscricoes(nome_completo, numero_inscricao, numero_bi, curso_id), turmas(nome_turma, turno, ano_lectivo)',
+        '*, inscricoes(nome_completo, numero_inscricao, numero_bi, curso_id), turmas!inner(nome_turma, turno, ano_lectivo)',
       )
       .order('created_at', { ascending: false })
 
+    if (edicaoId) query = query.eq('turmas.edicao_id', edicaoId)
     if (turmaFiltro !== 'todas') query = query.eq('turma_id', turmaFiltro)
     if (estadoFiltro !== 'todos') query = query.eq('estado_aluno', estadoFiltro)
 
     return query
-  }, [turmaFiltro, estadoFiltro])
+  }, [turmaFiltro, estadoFiltro, edicaoId])
 
   const { data: alunos, loading, error, reload } = useAsyncData<AlunoMatriculado[]>(alunosFetcher, [
     turmaFiltro,
     estadoFiltro,
+    edicaoId,
   ])
 
   // Inscrições aprovadas ainda sem matrícula (fila de alocação)
@@ -181,13 +183,14 @@ export default function Alunos() {
       .eq('estado', 'aprovado')
       .order('created_at', { ascending: false })
 
+    if (edicaoId) query = query.eq('edicao_id', edicaoId)
     if (idsComTurma.length > 0) {
       query = query.not('id', 'in', `(${idsComTurma.join(',')})`)
     }
     return query
-  }, [])
+  }, [edicaoId])
 
-  const { data: aprovadosSemTurma } = useAsyncData<Inscricao[]>(aprovadosSemTurmaFetcher, [])
+  const { data: aprovadosSemTurma } = useAsyncData<Inscricao[]>(aprovadosSemTurmaFetcher, [edicaoId])
 
   // Nota final da lista visível (uma consulta, sem N+1 na renderização)
   useEffect(() => {
@@ -242,12 +245,14 @@ export default function Alunos() {
   const exportarCsv = async () => {
     setExportando(true)
     // Rebuscar dados completos (sem limite de página) para exportação
-    const { data: todos, error } = await supabase
+    let consulta = supabase
       .from('alunos_matriculados')
       .select(
-        '*, inscricoes(nome_completo, numero_inscricao, numero_bi, curso_id), turmas(nome_turma, turno, ano_lectivo)',
+        '*, inscricoes(nome_completo, numero_inscricao, numero_bi, curso_id), turmas!inner(nome_turma, turno, ano_lectivo)',
       )
       .order('numero_estudante')
+    if (edicaoId) consulta = consulta.eq('turmas.edicao_id', edicaoId)
+    const { data: todos, error } = await consulta
 
     if (error || !todos) {
       setExportando(false)

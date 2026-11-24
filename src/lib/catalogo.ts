@@ -59,9 +59,22 @@ export interface InstituicaoPublica {
 
 export interface Catalogo {
   instituicao: InstituicaoPublica
+  /** Número da edição corrente (blocos de 3 meses, migração 032). */
   edicao: number
+  /** Ano em que a edição começou. */
+  edicaoAno: number | null
+  edicaoInicio: string | null
+  edicaoFim: string | null
   locais: LocalPublico[]
   cursos: CursoPublico[]
+}
+
+/** Edição correspondente a uma data — mesma regra da base de dados. */
+export const INICIO_EDICOES = { ano: 2026, mes: 7 }
+
+export function edicaoNaData(d: Date): number {
+  const meses = (d.getFullYear() - INICIO_EDICOES.ano) * 12 + (d.getMonth() + 1 - INICIO_EDICOES.mes)
+  return Math.floor(meses / 3) + 1
 }
 
 const INSTITUICAO_VAZIA: InstituicaoPublica = {
@@ -130,7 +143,10 @@ function normalizar(bruto: unknown): Catalogo | null {
       endereco: typeof instituicaoBruta.endereco === 'string' ? instituicaoBruta.endereco : null,
       logo_url: typeof instituicaoBruta.logo_url === 'string' ? instituicaoBruta.logo_url : null,
     },
-    edicao: numero(dados.edicao) ?? new Date().getFullYear(),
+    edicao: numero(dados.edicao) ?? edicaoNaData(new Date()),
+    edicaoAno: numero(dados.edicao_ano),
+    edicaoInicio: typeof dados.edicao_inicio === 'string' ? dados.edicao_inicio : null,
+    edicaoFim: typeof dados.edicao_fim === 'string' ? dados.edicao_fim : null,
     locais: (Array.isArray(dados.locais) ? dados.locais : []).flatMap((item) => {
       const l = item as Record<string, unknown>
       if (typeof l.id !== 'string' || typeof l.nome !== 'string') return []
@@ -162,7 +178,7 @@ async function catalogoDeReserva(): Promise<Catalogo> {
     limite_vagas: number
     vagas_preenchidas: number
   }[]
-  const edicao = turmas.reduce((max, t) => Math.max(max, t.ano_lectivo), 0) || new Date().getFullYear()
+  const edicao = edicaoNaData(new Date())
 
   const cursos = ((cursosRes.data ?? []) as {
     id: string
@@ -178,7 +194,7 @@ async function catalogoDeReserva(): Promise<Catalogo> {
     descricao: c.descricao?.trim() ? c.descricao : null,
     mensalidade: null,
     turnos: turmas
-      .filter((t) => t.curso_id === c.id && t.ano_lectivo === edicao)
+      .filter((t) => t.curso_id === c.id && t.ano_lectivo >= new Date().getFullYear() - 1)
       .map((t) => ({
         turno: t.turno,
         turma_id: t.id,
@@ -197,6 +213,9 @@ async function catalogoDeReserva(): Promise<Catalogo> {
       logo_url: inst?.logo_url ?? null,
     },
     edicao,
+    edicaoAno: new Date().getFullYear(),
+    edicaoInicio: null,
+    edicaoFim: null,
     locais: [],
     cursos,
   }
@@ -216,7 +235,15 @@ export async function carregarCatalogo(): Promise<Catalogo> {
   try {
     return await catalogoDeReserva()
   } catch {
-    return { instituicao: INSTITUICAO_VAZIA, edicao: new Date().getFullYear(), locais: [], cursos: [] }
+    return {
+      instituicao: INSTITUICAO_VAZIA,
+      edicao: edicaoNaData(new Date()),
+      edicaoAno: new Date().getFullYear(),
+      edicaoInicio: null,
+      edicaoFim: null,
+      locais: [],
+      cursos: [],
+    }
   }
 }
 

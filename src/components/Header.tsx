@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { useTheme } from '../hooks/useTheme'
 import { bloquearFinancas } from '../hooks/useFinancas'
 import { avatarColor, initials, usePerfil } from '../hooks/usePerfil'
+import { periodoEdicao, rotuloEdicao, useEdicao } from '../hooks/useEdicao'
 import { supabase } from '../lib/supabase'
 
 const SECTION_TITLES: Record<string, string> = {
@@ -11,6 +12,42 @@ const SECTION_TITLES: Record<string, string> = {
   '/admin/cursos': 'Cursos & Turmas',
   '/admin/alunos': 'Alunos & Turmas',
   '/admin/pautas': 'Pautas & formadores',
+}
+
+/** Selector de edição (3 meses). Muda a edição visível no painel inteiro. */
+function SeletorEdicao() {
+  const { edicoes, edicao, setEdicaoId, carregando, corrente } = useEdicao()
+
+  if (carregando || edicoes.length === 0) return null
+
+  return (
+    <label className="mr-1 flex items-center gap-1.5" title={edicao ? periodoEdicao(edicao) : undefined}>
+      <span className="hidden text-[11px] uppercase tracking-[0.06em] text-ink-faint sm:block">Edição</span>
+      <select
+        value={edicao?.id ?? ''}
+        onChange={(e) => setEdicaoId(e.target.value)}
+        className="input py-1 text-[12px]"
+        aria-label="Edição em que está a trabalhar"
+      >
+        {edicoes.map((e) => (
+          <option key={e.id} value={e.id}>
+            {rotuloEdicao(e)}
+            {e.atual ? ' · em curso' : ''}
+          </option>
+        ))}
+      </select>
+      {edicao && !edicao.atual && corrente && (
+        <button
+          type="button"
+          onClick={() => setEdicaoId(corrente.id)}
+          className="btn-ghost px-1.5 py-1 text-[11px]"
+          title={`Voltar à ${rotuloEdicao(corrente).toLowerCase()} (em curso)`}
+        >
+          Hoje
+        </button>
+      )}
+    </label>
+  )
 }
 
 export default function Header({ onMenuClick }: { onMenuClick: () => void }) {
@@ -41,6 +78,9 @@ export default function Header({ onMenuClick }: { onMenuClick: () => void }) {
       </div>
 
       <div className="flex items-center gap-1.5">
+        {/* Edição de trabalho: os dados do painel seguem esta escolha. */}
+        <SeletorEdicao />
+
         {/* Tema claro/escuro */}
         <button
           onClick={toggleTheme}

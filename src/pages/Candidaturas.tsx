@@ -7,6 +7,7 @@ import { useAsyncData } from '../hooks/useAsyncData'
 import { Badge, EmptyState, ErrorMessage, LoadingBlock, PageHeader } from '../components/ui'
 import { format } from '../lib/format'
 import { pushToast } from '../components/ToastHost'
+import { useEdicao } from '../hooks/useEdicao'
 
 type FiltroOrigem = 'online' | 'todas'
 
@@ -15,6 +16,8 @@ const STORAGE = 'documentos-inscricao'
 export default function Candidaturas() {
   const [params] = useSearchParams()
   const validarId = params.get('validar')
+  // Candidaturas da edição escolhida no cabeçalho.
+  const { edicaoId } = useEdicao()
   const [filtro, setFiltro] = useState<FiltroOrigem>('online')
   const [pesquisa, setPesquisa] = useState('')
   const [expandida, setExpandida] = useState<string | null>(validarId)
@@ -22,14 +25,16 @@ export default function Candidaturas() {
   const fetcher = useCallback(async (): Promise<
     { data: Inscricao[] | null; error: { message: string } | null }
   > => {
-    return (await supabase
+    let query = supabase
       .from('inscricoes')
       .select('*, cursos(nome, codigo), turmas(nome_turma, turno, ano_lectivo)')
       .order('created_at', { ascending: false })
-      .limit(500)) as { data: Inscricao[] | null; error: { message: string } | null }
-  }, [])
+      .limit(500)
+    if (edicaoId) query = query.eq('edicao_id', edicaoId)
+    return (await query) as { data: Inscricao[] | null; error: { message: string } | null }
+  }, [edicaoId])
 
-  const { data: inscricoes, loading, error, reload } = useAsyncData<Inscricao[]>(fetcher, [])
+  const { data: inscricoes, loading, error, reload } = useAsyncData<Inscricao[]>(fetcher, [edicaoId])
 
   // Tipos de documento por inscrição — alimenta os selos BI/recibo da lista.
   // Uma leitura só, em vez de um pedido por linha.

@@ -7,6 +7,7 @@ import { useAsyncData } from '../hooks/useAsyncData'
 import { EmptyState, ErrorMessage, LoadingBlock, PageHeader, Spinner } from '../components/ui'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { showSuccess, showError, confirmarAcao } from '../lib/alerts'
+import { useEdicao } from '../hooks/useEdicao'
 
 // ---------------------------------------------------------------------------
 // Modal de curso (criar / editar)
@@ -171,6 +172,8 @@ interface TurmaForm {
   turno: Turno
   limite_vagas: number
   ano_lectivo: number
+  /** Edição de 3 meses da turma; o trigger da BD preenche se faltar. */
+  edicao_id?: string | null
 }
 
 function TurmaModal({
@@ -178,6 +181,8 @@ function TurmaModal({
   formadores,
   turma,
   formadoresIniciais,
+  edicaoId,
+  anoEdicao,
   onClose,
   onDone,
 }: {
@@ -186,6 +191,9 @@ function TurmaModal({
   turma: Turma | null
   /** formador_id já atribuídos à turma (turma_formadores) ao abrir o modal. */
   formadoresIniciais: string[]
+  /** Edição escolhida no painel: a turma nova nasce nesta edição. */
+  edicaoId: string | null
+  anoEdicao: number | null
   onClose: () => void
   onDone: () => void
 }) {
@@ -196,7 +204,8 @@ function TurmaModal({
       nome_turma: '',
       turno: 'manha',
       limite_vagas: 30,
-      ano_lectivo: new Date().getFullYear(),
+      ano_lectivo: anoEdicao ?? new Date().getFullYear(),
+      edicao_id: edicaoId,
     },
   )
   const [loading, setLoading] = useState(false)
@@ -214,6 +223,7 @@ function TurmaModal({
         turno: form.turno,
         limite_vagas: Number(form.limite_vagas),
         ano_lectivo: Number(form.ano_lectivo),
+        edicao_id: form.edicao_id ?? edicaoId ?? null,
       }
       let turmaId = turma?.id
       if (turma) {
@@ -380,6 +390,9 @@ export default function CursosTurmas() {
   const [modalFormador, setModalFormador] = useState<Formador | null>(null)
   const [formadorNovo, setFormadorNovo] = useState(false)
 
+  // Turmas e edições: a lista mostra as turmas da edição escolhida no painel.
+  const { edicao, edicaoId } = useEdicao()
+
   const cursosFetcher = useCallback(
     async () =>
       (await supabase.from('cursos').select('*').order('nome')) as {
@@ -393,21 +406,21 @@ export default function CursosTurmas() {
     [],
   )
 
-  const turmasFetcher = useCallback(
-    async () =>
-      (await supabase
-        .from('turmas')
-        .select('*, cursos(nome, codigo), turma_formadores(formador_id)')
-        .order('ano_lectivo', { ascending: false })
-        .order('nome_turma')) as {
-        data: TurmaComRelacoes[] | null
-        error: { message: string } | null
-      },
-    [],
-  )
+  const turmasFetcher = useCallback(async () => {
+    let query = supabase
+      .from('turmas')
+      .select('*, cursos(nome, codigo), turma_formadores(formador_id)')
+      .order('ano_lectivo', { ascending: false })
+      .order('nome_turma')
+    if (edicaoId) query = query.eq('edicao_id', edicaoId)
+    return (await query) as {
+      data: TurmaComRelacoes[] | null
+      error: { message: string } | null
+    }
+  }, [edicaoId])
   const { data: turmas, loading: loadingTurmas, error: errorTurmas, reload: reloadTurmas } = useAsyncData<
     TurmaComRelacoes[]
-  >(turmasFetcher, [])
+  >(turmasFetcher, [edicaoId])
 
   const formadoresFetcher = useCallback(
     async () =>
@@ -736,6 +749,8 @@ export default function CursosTurmas() {
             formadores={formadores ?? []}
             turma={modalTurma}
             formadoresIniciais={(modalTurma?.turma_formadores ?? []).map((tf) => tf.formador_id)}
+            edicaoId={edicaoId}
+            anoEdicao={edicao?.ano ?? null}
             onClose={() => {
               setModalTurma(null)
               setTurmaNova(false)
