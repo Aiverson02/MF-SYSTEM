@@ -1154,3 +1154,14 @@ textarea.lp-input {
     scroll-behavior: auto !important;
   }
 }
+
+/* ----------------------------------------------------------------------------
+   Base do documento
+   O preflight do site público (styles/preflight.css) trata do reset; aqui fica
+   só o fundo do documento, para o rubber-band não mostrar branco.
+   -------------------------------------------------------------------------- */
+
+body {
+  margin: 0;
+  background: #f2f3ec;
+}

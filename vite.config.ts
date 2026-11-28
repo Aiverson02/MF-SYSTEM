@@ -2,9 +2,13 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-// Dois sites, um código:
-//   · `npm run build`      → sistema central (painel + portal), em dist/
-//   · `npm run build:site` → página pública da instituição, em dist-landing/
+// Dois sites, duas entradas, um código:
+//   · `npm run build`      → sistema central (painel + portal), src/main.tsx → dist/
+//   · `npm run build:site` → página pública, src/main-landing.tsx → dist-landing/
+//
+// O site público tem entrada própria (`main-landing.tsx`) para que o build do
+// domínio público não inclua um único chunk do sistema central (Alunos,
+// Finanças, Dashboard, portal dos formadores).
 //
 // As credenciais do Supabase (`.env`) são as mesmas nos dois: o site público
 // fala com a mesma base de dados e é lá que as inscrições ficam guardadas.
@@ -12,22 +16,24 @@ export default defineConfig(({ mode }) => {
   const sitePublico = mode === 'landing'
 
   return {
-    // O main.tsx escolhe as rotas do build (site público ou sistema).
-    define: {
-      __MODO__: JSON.stringify(sitePublico ? 'landing' : 'sistema'),
-    },
     build: {
       outDir: sitePublico ? 'dist-landing' : 'dist',
     },
     plugins: [
       react(),
-      // O index.html é o do site público (título e descrição para o anúncio);
-      // no sistema o separador do browser mostra o nome da ferramenta.
       {
-        name: 'titulo-do-sistema',
-        transformIndexHtml(html: string) {
-          if (sitePublico) return html
-          return html.replace(/<title>[\s\S]*?<\/title>/, '<title>SIGA — Painel da Secretaria</title>')
+        name: 'html-por-modo',
+        // `order: 'pre'`: a entrada do build é lida do HTML depois destes hooks.
+        // Sem isto, o site público acabaria a construir o main.tsx do sistema.
+        transformIndexHtml: {
+          order: 'pre',
+          handler(html: string) {
+            // Site público: liga o HTML à entrada da landing em vez do painel.
+            if (sitePublico) return html.replace('/src/main.tsx', '/src/main-landing.tsx')
+            // O index.html é o do site público (título e descrição para o anúncio);
+            // no sistema o separador do browser mostra o nome da ferramenta.
+            return html.replace(/<title>[\s\S]*?<\/title>/, '<title>SIGA — Painel da Secretaria</title>')
+          },
         },
       },
       // O service worker (offline e PWA instalável) é só do sistema: a página

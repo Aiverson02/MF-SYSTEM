@@ -1,0 +1,5 @@
+/* Reset do documento para o site público.
+   A landing nasceu sobre o preflight do Tailwind (margens, listas, botões e
+   campos). O build público não carrega o index.css do painel — só este reset,
+   para não levar os tokens nem os utilitários da secretaria. */
+@tailwind base;

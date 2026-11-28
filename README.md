@@ -30,7 +30,8 @@ npm run dev    # servidor de desenvolvimento (http://localhost:5173)
 ## Build de produção
 
 ```bash
-npm run build  # tsc -b && vite build → dist/
+npm run build       # sistema central → dist/
+npm run build:site  # site público → dist-landing/
 ```
 
 ## Banco de dados (Supabase)
@@ -126,6 +127,10 @@ O mesmo código gera dois builds com endereços diferentes:
 | --- | --- | --- | --- |
 | Sistema central | `npm run build` | `dist/` | `/login`, `/admin` e `/formador` (painel + portal) |
 | Página pública | `npm run build:site` | `dist-landing/` | só a página da instituição e o formulário de inscrição |
+
+O site público tem entrada própria (`src/main-landing.tsx`): o build de
+`dist-landing/` não inclui um único chunk do painel (Dashboard, Alunos,
+Finanças, portal dos formadores) — o `main.tsx` do sistema só entra em `dist/`.
 
 Os dois falam com a mesma base de dados Supabase (as mesmas
 `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`): as inscrições enviadas no site
