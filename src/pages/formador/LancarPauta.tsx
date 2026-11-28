@@ -5,6 +5,7 @@ import type { PautaAluno, PautaFormador, ResumoTurma } from '../../types/databas
 import { ESTADO_PAUTA_LABELS, TIPO_AVALIACAO_LABELS, TURNO_LABELS, notaLabel } from '../../types/database'
 import { Badge, ErrorMessage, LoadingBlock, Spinner } from '../../components/ui'
 import { useAsyncData } from '../../hooks/useAsyncData'
+import { useEdicao } from '../../hooks/useEdicao'
 import { showError, showSuccess } from '../../lib/alerts'
 import { exportPautaCsv, type PautaLinha } from '../../lib/exportCsv'
 import { format } from '../../lib/format'
@@ -30,11 +31,13 @@ interface Linha {
 
 export default function LancarPauta() {
   const { turmaId = '', avaliacaoId = '' } = useParams<{ turmaId: string; avaliacaoId: string }>()
+  // A pauta tem de ser a da edição do cabeçalho (a mesma da lista).
+  const { edicaoId, carregando } = useEdicao()
 
   const fetcher = useCallback(async () => {
     const [alunos, pautas, resumo] = await Promise.all([
       supabase.rpc('pauta_da_turma', { p_turma_id: turmaId, p_avaliacao_id: avaliacaoId }),
-      supabase.rpc('pautas_do_formador'),
+      supabase.rpc('pautas_do_formador', { p_edicao_id: edicaoId }),
       supabase.rpc('resumo_turma', { p_turma_id: turmaId }),
     ])
 
@@ -50,9 +53,9 @@ export default function LancarPauta() {
       },
       error: null,
     }
-  }, [turmaId, avaliacaoId])
+  }, [turmaId, avaliacaoId, edicaoId])
 
-  const { data, loading, error, reload } = useAsyncData<Dados>(fetcher, [turmaId, avaliacaoId])
+  const { data, loading, error, reload } = useAsyncData<Dados>(fetcher, [turmaId, avaliacaoId, edicaoId])
 
   const guardadas = useMemo(() => {
     const mapa: Record<string, PautaAluno> = {}
@@ -198,7 +201,7 @@ export default function LancarPauta() {
     showSuccess('Pauta exportada em CSV.')
   }
 
-  if (loading) return <LoadingBlock label="A carregar a pauta..." />
+  if (loading || carregando) return <LoadingBlock label="A carregar a pauta..." />
   if (error) return <ErrorMessage message={error} onRetry={() => void reload()} />
   if (!pauta) {
     return (

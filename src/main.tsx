@@ -11,6 +11,8 @@ import PromptInstalacao from './components/PromptInstalacao'
 import { LoadingBlock } from './components/ui'
 // Camada offline: tem de ser importada antes da app (intercepta o fetch ao Supabase).
 import './lib/offline'
+// Registo do service worker com actualização automática (ver src/pwa.ts).
+import { registarServiceWorker } from './pwa'
 import './index.css'
 
 // Divisão de código: cada página do painel entra em chunks separados, baixados
@@ -40,9 +42,28 @@ const LancarPauta = lazy(() => import('./pages/formador/LancarPauta'))
 /** Área de trabalho (painel, login, portal): as ferramentas do SIGA. */
 const AREA_RESERVADA = /^\/(admin|login|formador)(\/|$)/
 
+/**
+ * Dois builds do mesmo código:
+ *   · `npm run build`      → o sistema central (painel + portal), em dist/
+ *   · `npm run build:site` → a página pública da instituição, em dist-landing/
+ */
+
 function App() {
   const { pathname } = useLocation()
   const areaReservada = AREA_RESERVADA.test(pathname)
+
+  // O site público e o sistema central são duas instalações com endereços
+  // próprios: este build leva só a página da instituição (as inscrições vão
+  // para a mesma base de dados, por isso a ligação segura mantém-se).
+  if (__MODO__ === 'landing') {
+    return (
+      <Suspense fallback={<LoadingBlock />}>
+        <Routes>
+          <Route path="*" element={<Landing />} />
+        </Routes>
+      </Suspense>
+    )
+  }
 
   return (
     <>
@@ -52,8 +73,9 @@ function App() {
       {areaReservada && <PromptInstalacao />}
       <Suspense fallback={<LoadingBlock />}>
         <Routes>
-          {/* A raiz é a página pública da instituição. */}
-          <Route path="/" element={<Landing />} />
+          {/* O sistema não serve o site público: quem chega à raiz entra pela
+              autenticação (o site da instituição tem o seu próprio endereço). */}
+          <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/login" element={<Login />} />
           <Route element={<RequireAuth />}>
             {/* Painel da secretaria — papéis admin/secretaria */}
@@ -85,13 +107,17 @@ function App() {
               </Route>
             </Route>
           </Route>
-          {/* Qualquer outro endereço cai no prospecto — o site é público. */}
-          <Route path="*" element={<Landing />} />
+          {/* Qualquer outro endereço do sistema volta à entrada. */}
+          <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </Suspense>
     </>
   )
 }
+
+// O service worker (offline e instalação) é só do sistema: a página pública
+// deve abrir sempre a versão nova, sem cache local.
+if (__MODO__ === 'sistema') registarServiceWorker()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

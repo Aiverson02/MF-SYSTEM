@@ -8,7 +8,8 @@
  *   2. cria uma inscrição por linha (RPC `submeter_inscricao_publica`, que já
  *      gera o número e aplica o limite de 3 cursos / duplicados);
  *   3. aprova e matricula cada candidato na primeira turma do curso+turno
- *      escolhidos com vagas — a mesma regra de `matricular_aluno`.
+ *      escolhidos, dentro da edição do cabeçalho, com vagas — a mesma regra de
+ *      `matricular_aluno`.
  *
  * Linhas inválidas (sem nome/telefone, datas ilegíveis) não são submetidas e
  * aparecem no resumo antes de escrever na base de dados.
@@ -320,6 +321,8 @@ export async function importarInscricoes(opcoes: {
   linhas: LinhaImportada[]
   cursoId: string
   turno: Turno
+  /** Edição das turmas de destino (a escolhida no cabeçalho). */
+  edicaoId?: string | null
   confirmar: (contagens: { validas: number; invalidas: number }) => Promise<boolean>
   onProgresso?: (feitas: number, total: number) => void
 }): Promise<ResultadoImportacao> {
@@ -342,12 +345,16 @@ export async function importarInscricoes(opcoes: {
   if (!confirmado) return { estado: 'cancelado' }
 
   try {
-    const { data: turmasData, error: errTurmas } = await supabase
+    // Só as turmas da edição escolhida: sem isto, um ficheiro importado na
+    // edição nova podia encaixar alunos numa turma antiga que ainda tem vagas.
+    let turmasQuery = supabase
       .from('turmas')
       .select('*')
       .eq('curso_id', opcoes.cursoId)
       .eq('turno', opcoes.turno)
       .order('ano_lectivo', { ascending: false })
+    if (opcoes.edicaoId) turmasQuery = turmasQuery.eq('edicao_id', opcoes.edicaoId)
+    const { data: turmasData, error: errTurmas } = await turmasQuery
     if (errTurmas) throw new Error(mensagemErro(errTurmas, 'Não foi possível carregar as turmas.'))
 
     const turmas = (turmasData ?? []) as Turma[]

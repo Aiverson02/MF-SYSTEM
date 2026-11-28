@@ -4,6 +4,7 @@ import type { Curso, Turno } from '../types/database'
 import { TURNO_LABELS } from '../types/database'
 import { supabase } from '../lib/supabase'
 import { useAsyncData } from '../hooks/useAsyncData'
+import { rotuloEdicao, useEdicao } from '../hooks/useEdicao'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { LoadingBlock, ErrorMessage, Spinner } from './ui'
 import { confirmarAcao, showError, showInfo, showSuccess } from '../lib/alerts'
@@ -29,6 +30,8 @@ export default function ImportarInscricoesModal({
   onDone: () => void
 }) {
   useEscapeKey(onClose)
+  // As turmas de destino são as da edição escolhida no cabeçalho.
+  const { edicao, edicaoId } = useEdicao()
 
   const cursosFetcher = useCallback(
     async () =>
@@ -93,13 +96,14 @@ export default function ImportarInscricoesModal({
       linhas: leitura.linhas,
       cursoId,
       turno,
+      edicaoId,
       confirmar: async ({ validas: v, invalidas: inv }) => {
         const curso = (cursos ?? []).find((c) => c.id === cursoId)?.nome ?? 'curso'
         const ok = await confirmarAcao({
           title: 'Importar alunos',
           message:
-            `Serão criadas ${v} inscrição(ões) em "${curso}" — ${TURNO_LABELS[turno]}.\n\n` +
-            'Cada candidato é aprovado e matriculado na primeira turma deste curso e turno com vagas livres. ' +
+            `Serão criadas ${v} inscrição(ões) em "${curso}" — ${TURNO_LABELS[turno]} (${rotuloEdicao(edicao)}).\n\n` +
+            'Cada candidato é aprovado e matriculado na primeira turma deste curso e turno, nesta edição, com vagas livres. ' +
             'Quem não encontrar turma fica inscrito e pendente, e aparece no resumo.' +
             (inv > 0 ? `\n\n${inv} linha(s) com dados inválidos serão ignoradas.` : ''),
           confirmLabel: 'Importar',
@@ -141,7 +145,8 @@ export default function ImportarInscricoesModal({
           <div>
             <h3 className="font-serif text-lg font-semibold text-ink">Importar alunos (CSV / Excel)</h3>
             <p className="text-xs text-ink-faint">
-              Todos os candidatos do ficheiro entram no curso e turno escolhidos e são encaixados na turma com vagas.
+              Todos os candidatos do ficheiro entram no curso e turno escolhidos e são encaixados na turma com vagas da{' '}
+              {rotuloEdicao(edicao).toLowerCase()}.
             </p>
           </div>
           <button onClick={onClose} className="btn-ghost p-1.5" aria-label="Fechar">

@@ -99,6 +99,18 @@ export default function Login() {
             {loading ? 'A entrar...' : 'Entrar'}
           </button>
         </form>
+
+        {/* O site da instituição tem o seu próprio endereço (ver `.env`). */}
+        {import.meta.env.VITE_LANDING_URL && (
+          <p className="mt-5 text-center">
+            <a
+              href={import.meta.env.VITE_LANDING_URL}
+              className="text-xs text-ink-faint hover:text-ink"
+            >
+              Site da instituição
+            </a>
+          </p>
+        )}
       </div>
     </div>
   )

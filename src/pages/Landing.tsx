@@ -18,6 +18,9 @@ import ComoFunciona from '../components/landing/ComoFunciona'
 import Localizacao from '../components/landing/Localizacao'
 import FormularioInscricao from '../components/landing/FormularioInscricao'
 
+/** Endereço do sistema central (ver `.env`); a página pública vive noutro. */
+const SISTEMA_URL = import.meta.env.VITE_SISTEMA_URL
+
 const TITULO = 'Moz Future — Cursos de 3 meses'
 const DESCRICAO =
   'Associação de Formação Profissional Moz Future. Cursos de 3 meses, 200 MT por mês. Inscrições online abertas.'
@@ -395,6 +398,9 @@ export default function Landing() {
           <p style={{ margin: 0 }}>
             Associação de Formação Profissional Moz Future · Edição {edicao} · {edicaoAno}
           </p>
+          {SISTEMA_URL && (
+            <a href={SISTEMA_URL}>Área reservada — entrar</a>
+          )}
         </div>
       </footer>
     </div>

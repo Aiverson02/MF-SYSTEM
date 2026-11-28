@@ -118,6 +118,22 @@ Definir `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` no painel do host
 (mesmos valores do `.env` local). Sem elas o build funciona mas o app avisa
 que não está configurado.
 
+### Dois sites (página pública e sistema)
+
+O mesmo código gera dois builds com endereços diferentes:
+
+| Site | Comando | Saída | Conteúdo |
+| --- | --- | --- | --- |
+| Sistema central | `npm run build` | `dist/` | `/login`, `/admin` e `/formador` (painel + portal) |
+| Página pública | `npm run build:site` | `dist-landing/` | só a página da instituição e o formulário de inscrição |
+
+Os dois falam com a mesma base de dados Supabase (as mesmas
+`VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`): as inscrições enviadas no site
+público entram directamente no sistema central. `VITE_SISTEMA_URL` (no build do
+site público) e `VITE_LANDING_URL` (no build do sistema) põem as ligações
+cruzadas entre os dois endereços. Manifests: `deploy-manifest.json` (sistema,
+`./dist`) e `deploy-site.json` (página pública, `./dist-landing`).
+
 ### Pós-deploy
 
 - Adicionar o URL de produção à lista de **Redirect URLs** do Supabase

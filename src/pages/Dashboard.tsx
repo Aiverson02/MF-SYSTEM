@@ -106,6 +106,16 @@ export default function Dashboard() {
       .order('created_at', { ascending: false })
       .limit(6)
     let qTodas = supabase.from('inscricoes').select('estado, origem, created_at').gte('created_at', inicioMes())
+    // Pendências e mensalidades do mês também são da edição do cabeçalho: o
+    // documento pertence a uma inscrição e a mensalidade à turma do aluno.
+    let qDocsPend = supabase
+      .from('documentos_inscricao')
+      .select('id, inscricoes!inner(edicao_id)', { count: 'exact', head: true })
+      .eq('estado_validacao', false)
+    let qPagsMes = supabase
+      .from('pagamentos')
+      .select('*, alunos_matriculados!inner(turmas!inner(edicao_id))')
+      .eq('mes_referencia', mesActualDia1())
 
     if (edicaoId) {
       qAprovadas = qAprovadas.eq('edicao_id', edicaoId)
@@ -113,16 +123,18 @@ export default function Dashboard() {
       qTurmas = qTurmas.eq('edicao_id', edicaoId)
       qRecentes = qRecentes.eq('edicao_id', edicaoId)
       qTodas = qTodas.eq('edicao_id', edicaoId)
+      qDocsPend = qDocsPend.eq('inscricoes.edicao_id', edicaoId)
+      qPagsMes = qPagsMes.eq('alunos_matriculados.turmas.edicao_id', edicaoId)
     }
 
     const [docsPend, aprovMes, alunos, turmas, recentes, todas, pagsMes] = await Promise.all([
-      supabase.from('documentos_inscricao').select('id', { count: 'exact', head: true }).eq('estado_validacao', false),
+      qDocsPend,
       qAprovadas,
       qAlunos,
       qTurmas,
       qRecentes,
       qTodas,
-      supabase.from('pagamentos').select('*').eq('mes_referencia', mesActualDia1()),
+      qPagsMes,
     ])
 
     const err = docsPend.error ?? aprovMes.error ?? alunos.error ?? turmas.error ?? recentes.error ?? todas.error ?? pagsMes.error
@@ -142,7 +154,7 @@ export default function Dashboard() {
         turmas: (turmas.data ?? []) as (Turma & { cursos?: { nome: string } | null })[],
         recentes: (recentes.data ?? []) as Inscricao[],
         inscricoesMes: { total: (todas.data ?? []).length, online },
-        pagamentos: (pagsMes.data ?? []) as Pagamento[],
+        pagamentos: (pagsMes.data ?? []) as unknown as Pagamento[],
         docsPendentes: docsPend.count ?? 0,
       },
       error: null,

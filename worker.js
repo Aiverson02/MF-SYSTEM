@@ -22,7 +22,9 @@ const CABECALHOS = {
     // O beacon do Cloudflare é injetado pela plataforma no HTML; é o único
     // script de terceiros autorizado.
     "script-src 'self' https://static.cloudflareinsights.com",
-    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://cloudflareinsights.com",
+    // `fonts.gstatic.com` no `connect-src`: um service worker antigo que ainda
+    // intercepte as fontes faz um `fetch()` sujeito a esta directiva.
+    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://cloudflareinsights.com https://fonts.gstatic.com",
     "worker-src 'self' blob:",
     "manifest-src 'self'",
   ].join('; '),

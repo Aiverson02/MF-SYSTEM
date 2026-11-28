@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { useInstituicao } from '../../hooks/useInstituicao'
 import { usePerfil } from '../../hooks/usePerfil'
 import { useTheme } from '../../hooks/useTheme'
+import { EdicaoProvider, periodoEdicao, rotuloEdicao, useEdicao } from '../../hooks/useEdicao'
 
 /**
  * Moldura do portal dos formadores: leve e pensada para telemóvel
@@ -13,9 +14,20 @@ import { useTheme } from '../../hooks/useTheme'
  * autenticado.
  */
 export default function PortalFormador() {
+  // O portal tem o seu próprio selector de edição: as pautas mostradas são as
+  // da edição escolhida, como no resto do sistema.
+  return (
+    <EdicaoProvider>
+      <Moldura />
+    </EdicaoProvider>
+  )
+}
+
+function Moldura() {
   const instituicao = useInstituicao()
   const perfil = usePerfil()
   const { theme, toggleTheme } = useTheme()
+  const { edicoes, edicao, setEdicaoId } = useEdicao()
   const [menuAberto, setMenuAberto] = useState(false)
 
   return (
@@ -77,7 +89,7 @@ export default function PortalFormador() {
           </div>
         </div>
 
-        <nav className="mx-auto flex max-w-3xl gap-1 px-3 pb-2">
+        <nav className="mx-auto flex max-w-3xl items-center gap-1 px-3 pb-2">
           {[
             { to: '/formador/pautas', label: 'As minhas pautas' },
           ].map((item) => (
@@ -93,6 +105,23 @@ export default function PortalFormador() {
               {item.label}
             </NavLink>
           ))}
+
+          {edicoes.length > 0 && (
+            <select
+              value={edicao?.id ?? ''}
+              onChange={(e) => setEdicaoId(e.target.value)}
+              className="input ml-auto py-1 text-[12px]"
+              aria-label="Edição em que está a trabalhar"
+              title={edicao ? periodoEdicao(edicao) : undefined}
+            >
+              {edicoes.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {rotuloEdicao(e)}
+                  {e.atual ? ' · em curso' : ''}
+                </option>
+              ))}
+            </select>
+          )}
         </nav>
       </header>
 

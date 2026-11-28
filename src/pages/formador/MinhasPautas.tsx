@@ -5,6 +5,7 @@ import type { PautaFormador } from '../../types/database'
 import { ESTADO_PAUTA_LABELS, TIPO_AVALIACAO_LABELS, TURNO_LABELS } from '../../types/database'
 import { Badge, EmptyState, ErrorMessage, LoadingBlock } from '../../components/ui'
 import { useAsyncData } from '../../hooks/useAsyncData'
+import { rotuloEdicao, useEdicao } from '../../hooks/useEdicao'
 import { exportToCsv, nomeFicheiro } from '../../lib/exportCsv'
 import { showSuccess } from '../../lib/alerts'
 import { format } from '../../lib/format'
@@ -12,15 +13,18 @@ import { format } from '../../lib/format'
 /**
  * O que o formador tem para preencher: uma linha por item (avaliação, exame ou
  * recurso) que a secretaria abriu. Os dados vêm da RPC `pautas_do_formador`,
- * que só devolve as turmas atribuídas a este formador.
+ * que só devolve as turmas atribuídas a este formador, na edição do cabeçalho.
  */
 export default function MinhasPautas() {
-  const fetcher = useCallback(async () => {
-    const { data, error } = await supabase.rpc('pautas_do_formador')
-    return { data: (data as PautaFormador[] | null) ?? null, error }
-  }, [])
+  const { edicao, edicaoId, carregando } = useEdicao()
 
-  const { data: pautas, loading, error, reload } = useAsyncData<PautaFormador[]>(fetcher, [])
+  const fetcher = useCallback(async () => {
+    if (!edicaoId) return { data: [] as PautaFormador[], error: null }
+    const { data, error } = await supabase.rpc('pautas_do_formador', { p_edicao_id: edicaoId })
+    return { data: (data as PautaFormador[] | null) ?? null, error }
+  }, [edicaoId])
+
+  const { data: pautas, loading, error, reload } = useAsyncData<PautaFormador[]>(fetcher, [edicaoId])
 
   const porTurma = (pautas ?? []).reduce<Record<string, PautaFormador[]>>((acc, p) => {
     const chave = `${p.ano_lectivo}·${p.curso}·${p.turma}·${p.turno}`
@@ -28,7 +32,7 @@ export default function MinhasPautas() {
     return acc
   }, {})
 
-  if (loading) return <LoadingBlock label="A carregar as suas pautas..." />
+  if (loading || carregando) return <LoadingBlock label="A carregar as suas pautas..." />
   if (error) return <ErrorMessage message={error} onRetry={() => void reload()} />
 
   /** As suas pautas em CSV (mesma informação que aparece na lista). */
@@ -60,6 +64,7 @@ export default function MinhasPautas() {
           <h1 className="text-[22px] leading-tight text-ink">As minhas pautas</h1>
           <p className="mt-1 text-sm text-ink-muted">
             A secretaria abre cada pauta; aqui lança e corrige as notas enquanto estiver aberta.
+            {edicao ? ` Pautas da ${rotuloEdicao(edicao).toLowerCase()}.` : ''}
           </p>
         </div>
         {(pautas ?? []).length > 0 && (
@@ -72,7 +77,7 @@ export default function MinhasPautas() {
       {(pautas ?? []).length === 0 ? (
         <div className="cell mt-5">
           <EmptyState
-            message="Ainda não tem pautas atribuídas. Assim que a secretaria abrir uma pauta das suas turmas, ela aparece aqui."
+            message={`Ainda não tem pautas atribuídas${edicao ? ` na ${rotuloEdicao(edicao).toLowerCase()}` : ''}. Assim que a secretaria abrir uma pauta das suas turmas, ela aparece aqui.`}
             icon="📋"
           />
         </div>
