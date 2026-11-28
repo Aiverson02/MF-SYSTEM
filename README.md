@@ -129,10 +129,13 @@ O mesmo código gera dois builds com endereços diferentes:
 
 Os dois falam com a mesma base de dados Supabase (as mesmas
 `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`): as inscrições enviadas no site
-público entram directamente no sistema central. `VITE_SISTEMA_URL` (no build do
-site público) e `VITE_LANDING_URL` (no build do sistema) põem as ligações
-cruzadas entre os dois endereços. Manifests: `deploy-manifest.json` (sistema,
-`./dist`) e `deploy-site.json` (página pública, `./dist-landing`).
+público entram directamente no sistema central.
+
+A página pública **não** liga ao sistema central: só entra no painel quem tiver
+o endereço dele. A ligação ao contrário existe e é opcional — `VITE_LANDING_URL`
+no build do sistema acrescenta "Site da instituição" ao ecrã de entrada.
+Manifests: `deploy-manifest.json` (sistema, `./dist`) e `deploy-site.json`
+(página pública, `./dist-landing`).
 
 ### Pós-deploy
 
